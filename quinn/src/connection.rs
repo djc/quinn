@@ -130,7 +130,7 @@ pub struct NewConnection {
     /// Unordered, unreliable datagrams sent by the peer
     pub datagrams: Datagrams,
     /// Leave room for future extensions
-    _non_exhaustive: (),
+    pub(crate) _non_exhaustive: (),
 }
 
 impl NewConnection {

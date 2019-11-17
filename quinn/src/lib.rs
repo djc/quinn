@@ -4,7 +4,8 @@
 //! shortcomings of TCP, such as head-of-line blocking, poor security, slow handshakes, and
 //! inefficient congestion control. This crate provides a portable userspace implementation.
 //!
-//! The entry point of this crate is the [`Endpoint`](struct.Endpoint.html).
+//! The main entry point of this crate is the [`Endpoint`](struct.Endpoint.html). The
+//! [`simple`](simple) module can be used for prototyping.
 //!
 //! ```
 //! # use futures::TryFutureExt;
@@ -74,6 +75,9 @@ pub use streams::{
     Read, ReadError, ReadExact, ReadExactError, ReadToEnd, ReadToEndError, RecvStream, SendStream,
     WriteError,
 };
+
+#[cfg(feature = "simple")]
+pub mod simple;
 
 #[cfg(test)]
 mod tests;
