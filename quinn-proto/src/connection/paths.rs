@@ -15,6 +15,8 @@ pub struct PathData {
     pub pacing: Pacer,
     pub challenge: Option<u64>,
     pub challenge_pending: bool,
+    /// MTU discovery
+    pub mtud: MtuDiscovery,
 }
 
 impl PathData {
@@ -32,6 +34,7 @@ impl PathData {
             congestion,
             challenge: None,
             challenge_pending: false,
+            mtud: MtuDiscovery::new(remote),
         }
     }
 
@@ -45,6 +48,7 @@ impl PathData {
             congestion,
             challenge: None,
             challenge_pending: false,
+            mtud: MtuDiscovery::new(remote),
         }
     }
 }
@@ -112,3 +116,99 @@ impl RttEstimator {
         self.get() + cmp::max(4 * self.var, TIMER_GRANULARITY)
     }
 }
+
+// Implements Datagram Packetization Layer Path Maximum Transmission Unit Discovery
+//
+// https://www.ietf.org/id/draft-ietf-tsvwg-datagram-plpmtud-21.html
+pub struct MtuDiscovery {
+    header_size: u16,
+    // Current MTU for the path
+    pub current: u16,
+    // Packet number and probe size for the current probe
+    probe_number: Option<u64>,
+    probe_size: Option<u16>,
+    // Failed probes at the current probe size
+    probe_count: usize,
+    phase: Phase,
+}
+
+impl MtuDiscovery {
+    fn new(remote: SocketAddr) -> Self {
+        Self {
+            header_size: match remote {
+                SocketAddr::V4(_) => 20,
+                SocketAddr::V6(_) => 48,
+            },
+            current: BASE_PLPMTU,
+            probe_number: None,
+            probe_size: None,
+            probe_count: 0,
+            phase: Phase::Searching,
+        }
+    }
+
+    pub fn poll_transmit(&mut self, next_packet_number: u64) -> Option<u16> {
+        if self.probe_number.is_some() {
+            return None;
+        } else if let Phase::Complete = self.phase {
+            return None;
+        }
+
+        if self.probe_size.is_none() {
+            match LEVELS
+                .iter()
+                .find(|&&x| x > (self.current + self.header_size))
+            {
+                Some(v) => {
+                    self.probe_size = Some(*v);
+                }
+                None => {
+                    self.phase = Phase::Complete;
+                    return None;
+                }
+            }
+        }
+
+        self.probe_number = Some(next_packet_number);
+        self.probe_size
+    }
+
+    pub fn acked(&mut self, number: u64) {
+        match self.probe_number {
+            Some(probed) if probed == number => {}
+            _ => return,
+        };
+
+        self.probe_number = None;
+        let new = self.probe_size.take().unwrap();
+        self.current = new - self.header_size;
+        if self.current == MAX_PLPMTU {
+            self.phase = Phase::Complete;
+        }
+    }
+
+    pub fn lost(&mut self, number: u64) {
+        match self.probe_number {
+            Some(probed) if probed == number => {}
+            _ => return,
+        };
+
+        self.probe_number = None;
+        self.probe_count += 1;
+        if self.probe_count == MAX_PROBES {
+            self.probe_size = None;
+            self.phase = Phase::Complete;
+        }
+    }
+}
+
+enum Phase {
+    Searching,
+    Complete,
+}
+
+const LEVELS: [u16; 4] = [1_350, 1_400, 1_450, 1_500];
+
+const MAX_PROBES: usize = 3;
+const MAX_PLPMTU: u16 = u16::MAX;
+const BASE_PLPMTU: u16 = 1280;
