@@ -1,8 +1,9 @@
 use std::{
-    net::{IpAddr, Ipv6Addr, SocketAddr, UdpSocket},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket},
     sync::Arc,
     thread,
 };
+use winapi::um::winsock2;
 
 use bencher::{benchmark_group, benchmark_main, Bencher};
 use futures::StreamExt;
@@ -10,7 +11,7 @@ use tokio::runtime::{Builder, Runtime};
 use tracing::error_span;
 use tracing_futures::Instrument as _;
 
-use quinn::{ClientConfigBuilder, Endpoint, ServerConfigBuilder};
+use quinn::{create_wsa_socket, ClientConfigBuilder, Endpoint, ServerConfigBuilder};
 
 benchmark_group!(benches, large_streams, small_streams);
 benchmark_main!(benches);
@@ -21,7 +22,7 @@ fn large_streams(bench: &mut Bencher) {
     let ctx = Context::new();
     let (addr, thread) = ctx.spawn_server();
     let (endpoint, client, mut runtime) = ctx.make_client(addr);
-    const DATA: &[u8] = &[0xAB; 128 * 1024];
+    const DATA: &[u8] = &[0xAB; 1024 * 1024];
     bench.bytes = DATA.len() as u64;
     bench.iter(|| {
         runtime.block_on(async {
@@ -61,6 +62,11 @@ struct Context {
 
 impl Context {
     fn new() -> Self {
+        let mut winsock_data = winsock2::WSADATA::default();
+        if unsafe { winsock2::WSAStartup(0x202, &mut winsock_data) } != 0 {
+            panic!("Error starting winsock");
+        }
+
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let key = quinn::PrivateKey::from_der(&cert.serialize_private_key_der()).unwrap();
         let cert = quinn::Certificate::from_der(&cert.serialize_der().unwrap()).unwrap();
@@ -83,8 +89,10 @@ impl Context {
     }
 
     pub fn spawn_server(&self) -> (SocketAddr, thread::JoinHandle<()>) {
-        let sock = UdpSocket::bind(SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0)).unwrap();
+        let sock = create_wsa_socket(&SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
         let addr = sock.local_addr().unwrap();
+        println!("Server address: {:?}", addr);
+
         let config = self.server_config.clone();
         let handle = thread::spawn(move || {
             let mut endpoint = Endpoint::builder();
@@ -119,7 +127,7 @@ impl Context {
         let mut runtime = rt();
         let (endpoint, _) = runtime.enter(|| {
             Endpoint::builder()
-                .bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0))
+                .bind(&SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
                 .unwrap()
         });
         let quinn::NewConnection { connection, .. } = runtime

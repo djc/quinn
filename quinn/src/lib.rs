@@ -62,10 +62,13 @@ pub use proto::{
     crypto, ApplicationClose, Certificate, CertificateChain, ConnectError, ConnectionClose,
     ConnectionError, ParseError, PrivateKey, StreamId, Transmit, TransportConfig, VarInt,
 };
+use std::collections::VecDeque;
 
 pub use crate::builders::EndpointError;
 pub use crate::connection::{SendDatagramError, ZeroRttAccepted};
 pub use crate::streams::{ReadError, ReadExactError, ReadToEndError, StoppedError, WriteError};
+
+pub use crate::builders::create_wsa_socket;
 
 /// Types that are generic over the crypto protocol implementation
 pub mod generic {
@@ -145,12 +148,14 @@ enum ConnectionEvent {
         reason: bytes::Bytes,
     },
     Proto(proto::ConnectionEvent),
+    ProtoM(VecDeque<proto::ConnectionEvent>),
 }
 
 #[derive(Debug)]
 enum EndpointEvent {
     Proto(proto::EndpointEvent),
     Transmit(proto::Transmit),
+    TransmitM(VecDeque<proto::Transmit>),
 }
 
 /// Maximum number of send/recv calls to make before moving on to other processing

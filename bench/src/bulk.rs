@@ -1,12 +1,22 @@
-use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Instant;
 
 use anyhow::{anyhow, Context, Result};
 use futures::StreamExt;
 use tokio::runtime::{Builder, Runtime};
 use tracing::trace;
+use winapi::um::winsock2;
+
+const NR_ITERATIONS: usize = 100;
+const NR_CHUNKS: usize = 2 * 1024;
+const DATA_LEN: usize = 1 * 1024 * 1024;
 
 fn main() {
+    let mut winsock_data = winsock2::WSADATA::default();
+    if unsafe { winsock2::WSAStartup(0x202, &mut winsock_data) } != 0 {
+        panic!("Error starting winsock");
+    }
+
     tracing::subscriber::set_global_default(
         tracing_subscriber::FmtSubscriber::builder()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -27,7 +37,7 @@ fn main() {
     let mut runtime = rt();
     let (endpoint, incoming) = runtime.enter(|| {
         endpoint
-            .bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0))
+            .bind(&SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
             .unwrap()
     });
     let server_addr = endpoint.local_addr().unwrap();
@@ -51,29 +61,31 @@ async fn server(mut incoming: quinn::Incoming) -> Result<()> {
     let quinn::NewConnection {
         mut uni_streams, ..
     } = handshake.await.context("handshake failed")?;
-    let mut stream = uni_streams
-        .next()
-        .await
-        .ok_or_else(|| anyhow!("accepting stream failed"))??;
-    trace!("stream established");
-    let start = Instant::now();
-    let mut n = 0;
-    while let Some((data, offset)) = stream.read_unordered().await? {
-        n = n.max(offset + data.len() as u64);
+    for _ in 0..NR_ITERATIONS {
+        let mut stream = uni_streams
+            .next()
+            .await
+            .ok_or_else(|| anyhow!("accepting stream failed"))??;
+        trace!("stream established");
+        let start = Instant::now();
+        let mut n = 0;
+        while let Some((data, offset)) = stream.read_unordered().await? {
+            n = n.max(offset + data.len() as u64);
+        }
+        let dt = start.elapsed();
+        println!(
+            "recvd {} bytes in {:?} ({} MiB/s)",
+            n,
+            dt,
+            n as f32 / (dt.as_secs_f32() * 1024.0 * 1024.0)
+        );
     }
-    let dt = start.elapsed();
-    println!(
-        "recvd {} bytes in {:?} ({} MiB/s)",
-        n,
-        dt,
-        n as f32 / (dt.as_secs_f32() * 1024.0 * 1024.0)
-    );
     Ok(())
 }
 
 async fn client(server_addr: SocketAddr, server_cert: quinn::Certificate) -> Result<()> {
     let (endpoint, _) = quinn::EndpointBuilder::default()
-        .bind(&SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 0))
+        .bind(&SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .unwrap();
 
     let mut client_config = quinn::ClientConfigBuilder::default();
@@ -87,20 +99,28 @@ async fn client(server_addr: SocketAddr, server_cert: quinn::Certificate) -> Res
         .context("unable to connect")?;
     trace!("connected");
 
-    let mut stream = connection
-        .open_uni()
-        .await
-        .context("failed to open stream")?;
-    const DATA: &[u8] = &[0xAB; 1024 * 1024];
-    let start = Instant::now();
-    for _ in 0..1024 {
-        stream
-            .write_all(DATA)
+    for _ in 0..NR_ITERATIONS {
+        let mut stream = connection
+            .open_uni()
             .await
-            .context("failed sending data")?;
+            .context("failed to open stream")?;
+        const DATA: &[u8] = &[0xAB; DATA_LEN];
+        let start = Instant::now();
+        for _ in 0..NR_CHUNKS {
+            stream
+                .write_all(DATA)
+                .await
+                .context("failed sending data")?;
+        }
+        stream.finish().await.context("failed finishing stream")?;
+        let dt = start.elapsed();
+        println!(
+            "sent {} bytes in {:?} ({} MiB/s)",
+            1024 * DATA.len(),
+            dt,
+            (NR_CHUNKS * DATA_LEN) as f32 / 1024.0 / 1024.0 / dt.as_secs_f32()
+        );
     }
-    stream.finish().await.context("failed finishing stream")?;
-    println!("sent {} bytes in {:?}", 1024 * DATA.len(), start.elapsed());
     Ok(())
 }
 

@@ -15,6 +15,7 @@ rustls = { git = "https://github.com/ctz/rustls", rev = "fee894f7e030" }
 tokio = { version = "0.2.13", features = ["rt-core"] }
 tracing = "0.1.10"
 tracing-subscriber = { version = "0.2.5", default-features = false, features = ["env-filter", "fmt", "ansi", "chrono"]}
+winapi = { version = "0.3.9", features = ["impl-default", "ioapiset", "mswsock", "winnt", "synchapi", "mswsockdef", "processthreadsapi"] }
 
 [[bin]]
 name = "bulk"

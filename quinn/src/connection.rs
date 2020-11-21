@@ -22,6 +22,7 @@ use tracing::info_span;
 
 use crate::{
     broadcast::{self, Broadcast},
+    endpoint::MessageSender,
     streams::{RecvStream, SendStream, WriteError},
     ConnectionEvent, EndpointEvent, VarInt,
 };
@@ -42,9 +43,10 @@ where
     S: proto::crypto::Session + 'static,
 {
     pub(crate) fn new(
+        spawner: &tokio::runtime::Handle,
         handle: ConnectionHandle,
         conn: proto::generic::Connection<S>,
-        endpoint_events: mpsc::UnboundedSender<(ConnectionHandle, EndpointEvent)>,
+        endpoint_events: MessageSender<(ConnectionHandle, EndpointEvent)>,
         conn_events: mpsc::UnboundedReceiver<ConnectionEvent>,
     ) -> Connecting<S> {
         let (on_handshake_data_send, on_handshake_data_recv) = oneshot::channel();
@@ -58,7 +60,7 @@ where
             on_connected_send,
         );
 
-        tokio::spawn(ConnectionDriver(conn.clone()));
+        spawner.spawn(ConnectionDriver(conn.clone()));
 
         Connecting {
             conn: Some(conn),
@@ -642,7 +644,7 @@ where
     fn new(
         handle: ConnectionHandle,
         conn: proto::generic::Connection<S>,
-        endpoint_events: mpsc::UnboundedSender<(ConnectionHandle, EndpointEvent)>,
+        endpoint_events: MessageSender<(ConnectionHandle, EndpointEvent)>,
         conn_events: mpsc::UnboundedReceiver<ConnectionEvent>,
         on_handshake_data: oneshot::Sender<()>,
         on_connected: oneshot::Sender<bool>,
@@ -729,7 +731,7 @@ where
     timer: Option<Delay>,
     timer_deadline: Option<TokioInstant>,
     conn_events: mpsc::UnboundedReceiver<ConnectionEvent>,
-    endpoint_events: mpsc::UnboundedSender<(ConnectionHandle, EndpointEvent)>,
+    endpoint_events: MessageSender<(ConnectionHandle, EndpointEvent)>,
     pub(crate) blocked_writers: HashMap<StreamId, Waker>,
     pub(crate) blocked_readers: HashMap<StreamId, Waker>,
     uni_opening: Broadcast,
@@ -751,11 +753,23 @@ where
 {
     fn drive_transmit(&mut self) {
         let now = Instant::now();
+
+        // TODO: If batched transmits are active performance seems a lot
+        // worse. Why is that?
+        let mut items = std::collections::VecDeque::new();
+
         while let Some(t) = self.inner.poll_transmit(now) {
+            // items.push_back(t);
+            let _ = self
+                .endpoint_events
+                .send((self.handle, EndpointEvent::Transmit(t)));
+        }
+
+        if !items.is_empty() {
             // If the endpoint driver is gone, noop.
             let _ = self
                 .endpoint_events
-                .unbounded_send((self.handle, EndpointEvent::Transmit(t)));
+                .send((self.handle, EndpointEvent::TransmitM(items)));
         }
     }
 
@@ -764,7 +778,7 @@ where
             // If the endpoint driver is gone, noop.
             let _ = self
                 .endpoint_events
-                .unbounded_send((self.handle, EndpointEvent::Proto(event)));
+                .send((self.handle, EndpointEvent::Proto(event)));
         }
     }
 
@@ -774,6 +788,11 @@ where
             match self.conn_events.poll_next_unpin(cx) {
                 Poll::Ready(Some(ConnectionEvent::Proto(event))) => {
                     self.inner.handle_event(event);
+                }
+                Poll::Ready(Some(ConnectionEvent::ProtoM(mut events))) => {
+                    while let Some(ev) = events.pop_front() {
+                        self.inner.handle_event(ev);
+                    }
                 }
                 Poll::Ready(Some(ConnectionEvent::Close { reason, error_code })) => {
                     self.close(error_code, reason);
@@ -978,7 +997,7 @@ where
     fn drop(&mut self) {
         if !self.inner.is_drained() {
             // Ensure the endpoint can tidy up
-            let _ = self.endpoint_events.unbounded_send((
+            let _ = self.endpoint_events.send((
                 self.handle,
                 EndpointEvent::Proto(proto::EndpointEvent::drained()),
             ));

@@ -1,15 +1,61 @@
 use std::{io, net::SocketAddr, sync::Arc};
 
 use proto::generic::{ClientConfig, EndpointConfig, ServerConfig};
+use std::os::windows::io::FromRawSocket;
 use thiserror::Error;
 use tracing::error;
+use winapi::{
+    shared::{ws2def, ws2ipdef},
+    um::winsock2,
+};
 
-use crate::{
-    endpoint::{Endpoint, EndpointDriver, EndpointRef, Incoming},
-    udp::UdpSocket,
+use crate::endpoint::{
+    into_c_addr, wsa_last_error, Endpoint, EndpointDriver, EndpointRef, Incoming,
 };
 #[cfg(feature = "rustls")]
 use crate::{Certificate, CertificateChain, PrivateKey};
+
+/// Creates a windows socket
+pub fn create_wsa_socket(addr: &SocketAddr) -> Result<std::net::UdpSocket, std::io::Error> {
+    let raw_socket = unsafe {
+        winsock2::WSASocketA(
+            if addr.is_ipv4() {
+                ws2def::AF_INET
+            } else {
+                ws2def::AF_INET6
+            },
+            ws2def::SOCK_DGRAM,
+            ws2def::IPPROTO_UDP as i32,
+            std::ptr::null_mut(),
+            0,
+            winsock2::WSA_FLAG_REGISTERED_IO,
+        )
+    };
+    if raw_socket == winsock2::INVALID_SOCKET {
+        println!("Invalid socket");
+        return Err(wsa_last_error());
+    }
+
+    let sock_addr = into_c_addr(*addr);
+
+    if winsock2::SOCKET_ERROR
+        == unsafe {
+            winsock2::bind(
+                raw_socket,
+                &sock_addr as *const ws2ipdef::SOCKADDR_INET as *const _,
+                std::mem::size_of_val(&sock_addr) as i32,
+            )
+        }
+    {
+        eprintln!("Can not bind");
+        let error = Err(wsa_last_error());
+        let _ = unsafe { winsock2::closesocket(raw_socket) };
+        return error;
+    }
+
+    let rust_sock: std::net::UdpSocket = unsafe { FromRawSocket::from_raw_socket(raw_socket as _) };
+    Ok(rust_sock)
+}
 
 /// A helper for constructing an [`Endpoint`].
 ///
@@ -51,7 +97,8 @@ where
     /// addresses. Portable applications should bind an address that matches the family they wish to
     /// communicate within.
     pub fn bind(self, addr: &SocketAddr) -> Result<(Endpoint<S>, Incoming<S>), EndpointError> {
-        let socket = std::net::UdpSocket::bind(addr).map_err(EndpointError::Socket)?;
+        let socket = create_wsa_socket(addr).map_err(|e| EndpointError::Socket(e))?;
+
         self.with_socket(socket)
     }
 
@@ -64,18 +111,25 @@ where
         socket: std::net::UdpSocket,
     ) -> Result<(Endpoint<S>, Incoming<S>), EndpointError> {
         let addr = socket.local_addr().map_err(EndpointError::Socket)?;
-        let socket = UdpSocket::from_std(socket).map_err(EndpointError::Socket)?;
+        eprintln!("Local address is {:?}", addr);
+
+        // let socket = UdpSocket::from_std(socket).map_err(EndpointError::Socket)?;
         let rc = EndpointRef::new(
+            tokio::runtime::Handle::current(),
             socket,
             proto::generic::Endpoint::new(Arc::new(self.config), self.server_config.map(Arc::new)),
             addr.is_ipv6(),
         );
-        let driver = EndpointDriver(rc.clone());
-        tokio::spawn(async {
-            if let Err(e) = driver.await {
-                error!("I/O error: {}", e);
+
+        let ev = rc.wakeup_event();
+
+        let mut driver = EndpointDriver(rc.clone());
+        std::thread::spawn(move || {
+            if let Err(e) = driver.run(ev) {
+                eprintln!("Endpoint error: {:?}", e);
             }
         });
+
         Ok((
             Endpoint {
                 inner: rc.clone(),

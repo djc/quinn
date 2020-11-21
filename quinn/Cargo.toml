@@ -37,6 +37,7 @@ thiserror = "1.0.21"
 tracing = "0.1.10"
 tokio = { version = "0.2.6", features = ["rt-core", "io-driver", "time"] }
 webpki = { version = "0.21", optional = true }
+winapi = { version = "0.3.9", features = ["impl-default", "ioapiset", "mswsock", "winnt", "synchapi", "mswsockdef", "processthreadsapi"] }
 
 [dev-dependencies]
 anyhow = "1.0.22"
