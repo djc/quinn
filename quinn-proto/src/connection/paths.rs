@@ -147,4 +147,8 @@ impl RttEstimator {
     pub fn pto_base(&self) -> Duration {
         self.get() + cmp::max(4 * self.var, TIMER_GRANULARITY)
     }
+
+    pub fn min(&self) -> Duration {
+        self.min
+    }
 }

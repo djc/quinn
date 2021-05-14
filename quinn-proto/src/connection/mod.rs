@@ -48,7 +48,7 @@ mod pacing;
 mod packet_builder;
 use packet_builder::PacketBuilder;
 
-mod paths;
+pub(crate) mod paths;
 use paths::PathData;
 
 mod send_buffer;
@@ -132,7 +132,7 @@ where
     /// This is only populated for the server case, and if known
     local_ip: Option<IpAddr>,
 
-    path: PathData,
+    pub path: PathData,
     prev_path: Option<PathData>,
     state: State,
     side: Side,
@@ -764,6 +764,7 @@ where
             if pad_datagram {
                 builder.pad_to(MIN_INITIAL_SIZE);
             }
+            self.path.congestion.update_last_sent(builder.exact_number);
             builder.finish_and_track(now, self, sent_frames, &mut buf);
         }
 
@@ -775,6 +776,7 @@ where
 
         trace!("sending {} bytes in {} datagrams", buf.len(), num_datagrams);
         self.path.total_sent = self.path.total_sent.saturating_add(buf.len() as u64);
+        self.path.congestion.on_sent(now, buf.len() as u64);
 
         self.stats.udp_tx.datagrams += num_datagrams as u64;
         self.stats.udp_tx.bytes += buf.len() as u64;
@@ -1139,6 +1141,13 @@ where
             }
         }
 
+        self.path.congestion.on_end_acks(
+            now,
+            self.in_flight.bytes,
+            self.app_limited,
+            self.spaces[space].largest_acked_packet,
+        );
+
         if new_largest && ack_eliciting_acked {
             let ack_delay = if space != SpaceId::Data {
                 Duration::from_micros(0)
@@ -1220,7 +1229,7 @@ where
                 info.time_sent,
                 info.size.into(),
                 self.app_limited,
-                self.path.rtt.get(),
+                &self.path.rtt,
             );
         }
 
@@ -1297,6 +1306,7 @@ where
         let lost_send_time = now - loss_delay;
         let largest_acked_packet = self.spaces[pn_space].largest_acked_packet.unwrap();
         let packet_threshold = self.config.packet_threshold as u64;
+        let mut size_of_lost_packets = 0u64;
 
         let space = &mut self.spaces[pn_space];
         space.loss_time = None;
@@ -1304,6 +1314,7 @@ where
             if info.time_sent <= lost_send_time || largest_acked_packet >= packet + packet_threshold
             {
                 lost_packets.push(packet);
+                size_of_lost_packets += info.size as u64;
             } else {
                 let next_loss_time = info.time_sent + loss_delay;
                 space.loss_time = Some(
@@ -1344,6 +1355,9 @@ where
                     largest_lost_sent,
                     in_persistent_congestion,
                 );
+                self.path
+                    .congestion
+                    .on_loss(now, largest_lost_sent, size_of_lost_packets)
             }
         }
     }

@@ -28,6 +28,7 @@ use crate::{
     send_stream::{SendStream, WriteError},
     ConnectionEvent, EndpointEvent, VarInt,
 };
+use proto::congestion::Controller;
 
 /// In-progress connection attempt future
 #[derive(Debug)]
@@ -456,6 +457,10 @@ where
     /// Returns connection statistics
     pub fn stats(&self) -> ConnectionStats {
         self.0.lock("stats").inner.stats()
+    }
+
+    pub fn cca(&self) -> Box<dyn Controller> {
+        self.0.lock("cca").inner.path.congestion.clone_box()
     }
 
     /// Parameters negotiated during the handshake
