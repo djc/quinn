@@ -5,6 +5,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     os::unix::io::AsRawFd,
     ptr,
+    sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll},
 };
 
@@ -226,6 +227,9 @@ fn send(io: &mio::net::UdpSocket, transmits: &[Transmit]) -> io::Result<usize> {
             if e.kind() == io::ErrorKind::Interrupted {
                 continue;
             }
+            if e.raw_os_error() == Some(libc::EIO) {
+                SAW_IO_ERROR.store(true, Ordering::Relaxed);
+            }
             return Err(e);
         }
         return Ok(n as usize);
@@ -334,7 +338,11 @@ fn recv(
 
 /// Returns the platforms UDP socket capabilities
 pub fn caps() -> UdpCapabilities {
-    *CAPABILITIES
+    let mut caps = *CAPABILITIES;
+    if SAW_IO_ERROR.load(Ordering::Relaxed) {
+        caps.max_gso_segments = 1;
+    }
+    caps
 }
 
 const CMSG_LEN: usize = 88;
@@ -371,13 +379,15 @@ fn prepare_msg(
         encoder.push(libc::IPPROTO_IPV6, libc::IPV6_TCLASS, ecn);
     }
 
-    if let Some(segment_size) = transmit.segment_size {
-        debug_assert!(
-            caps().max_gso_segments > 1,
-            "Platform must support GSO for setting segment size"
-        );
+    if !SAW_IO_ERROR.load(Ordering::Relaxed) {
+        if let Some(segment_size) = transmit.segment_size {
+            debug_assert!(
+                caps().max_gso_segments > 1,
+                "Platform must support GSO for setting segment size"
+            );
 
-        gso::set_segment_size(&mut encoder, segment_size as u16);
+            gso::set_segment_size(&mut encoder, segment_size as u16);
+        }
     }
 
     if let Some(ip) = &transmit.src_ip {
@@ -542,3 +552,9 @@ lazy_static! {
         }
     };
 }
+
+/// Whether any `sendmmsg` invocation has returned EIO
+///
+/// Linux sometimes reports GSO support on interfaces which don't actually provide it, and yields
+/// EIO when it's used. Therefore, if we've observed an EIO, we stop using GSO.
+static SAW_IO_ERROR: AtomicBool = AtomicBool::new(false);

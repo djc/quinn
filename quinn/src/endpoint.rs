@@ -269,6 +269,13 @@ where
     recv_limiter: WorkLimiter,
     recv_buf: Box<[u8]>,
     idle: Broadcast,
+
+    #[cfg(target_os = "linux")]
+    /// Whether EIO has been yielded by poll_send in the past
+    ///
+    /// Linux sometimes reports GSO support on interfaces which don't actually provide it, and yields
+    /// EIO when it's used. Therefore, if we've observed an EIO, we stop using GSO.
+    saw_eio: bool,
 }
 
 impl<S> EndpointInner<S>
@@ -350,6 +357,10 @@ where
             if self.outgoing.is_empty() {
                 return Ok(false);
             }
+            #[cfg(target_os = "linux")]
+            if self.saw_eio {
+                flatten_gso(&mut self.outgoing);
+            }
             match self.socket.poll_send(cx, self.outgoing.as_slices().0) {
                 Poll::Ready(Ok(n)) => {
                     self.outgoing.drain(..n);
@@ -365,6 +376,11 @@ where
                 }
                 Poll::Ready(Err(ref e)) if e.kind() == io::ErrorKind::PermissionDenied => {
                     return Ok(false);
+                }
+                #[cfg(target_os = "linux")]
+                Poll::Ready(Err(ref e)) if !self.saw_eio && e.raw_os_error() == Some(libc::EIO) => {
+                    self.saw_eio = true;
+                    continue;
                 }
                 Poll::Ready(Err(e)) => {
                     return Err(e);
@@ -525,6 +541,9 @@ where
             recv_buf: recv_buf.into(),
             recv_limiter: WorkLimiter::new(RECV_TIME_BOUND),
             idle: Broadcast::new(),
+
+            #[cfg(target_os = "linux")]
+            saw_eio: false,
         })))
     }
 }
@@ -565,5 +584,34 @@ where
     type Target = Mutex<EndpointInner<S>>;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+#[cfg(target_os = "linux")]
+/// Expand GSO-layout Transmits into single segment Transmits
+fn flatten_gso(transmits: &mut VecDeque<proto::Transmit>) {
+    let mut n = transmits.len();
+    let mut i = 0;
+    while i < n {
+        let size = match transmits[i].segment_size {
+            Some(x) => x,
+            None => {
+                i += 1;
+                continue;
+            }
+        };
+        let transmit = transmits.remove(i).unwrap();
+        n -= 1;
+        let mut offset = 0;
+        while offset < transmit.contents.len() {
+            let end = transmit.contents.len().min(offset + size);
+            let split = proto::Transmit {
+                contents: transmits[i].contents[offset..end].to_vec(),
+                segment_size: None,
+                ..transmit
+            };
+            transmits.push_back(split);
+            offset += size;
+        }
     }
 }
