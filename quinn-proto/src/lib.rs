@@ -119,8 +119,8 @@ pub mod fuzzing {
     use arbitrary::{Arbitrary, Result, Unstructured};
     pub use bytes::{BufMut, BytesMut};
 
-    impl Arbitrary for TransportParameters {
-        fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self> {
+    impl<'arbitrary> Arbitrary<'arbitrary> for TransportParameters {
+        fn arbitrary(u: &mut Unstructured<'arbitrary>) -> Result<Self> {
             Ok(TransportParameters {
                 initial_max_streams_bidi: u.arbitrary()?,
                 initial_max_streams_uni: u.arbitrary()?,
@@ -137,8 +137,8 @@ pub mod fuzzing {
         pub buf: BytesMut,
     }
 
-    impl Arbitrary for PacketParams {
-        fn arbitrary(u: &mut Unstructured<'_>) -> Result<Self> {
+    impl<'arbitrary> Arbitrary<'arbitrary> for PacketParams {
+        fn arbitrary(u: &mut Unstructured<'arbitrary>) -> Result<Self> {
             let local_cid_len: usize = u.int_in_range(0..=MAX_CID_SIZE)?;
             let bytes: Vec<u8> = Vec::arbitrary(u)?;
             let mut buf = BytesMut::new();

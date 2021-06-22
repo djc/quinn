@@ -133,8 +133,8 @@ impl fmt::Display for VarInt {
 }
 
 #[cfg(feature = "arbitrary")]
-impl Arbitrary for VarInt {
-    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+impl<'arbitrary> Arbitrary<'arbitrary> for VarInt {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'arbitrary>) -> arbitrary::Result<Self> {
         Ok(VarInt(u.int_in_range(0..=VarInt::MAX.0)?))
     }
 }
