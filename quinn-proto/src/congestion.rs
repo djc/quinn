@@ -59,7 +59,7 @@ pub trait Controller: Send + Debug {
 
     fn on_loss(&mut self, _now: Instant, _sent: Instant, _bytes: u64) {}
 
-    fn update_last_sent(&mut self, _packet_number: u64) {}
+    fn update_last_sent(&mut self, _packet_number: PacketNumber) {}
 
     /// Number of ack-eliciting bytes that may be in flight
     fn window(&self) -> u64;

@@ -591,7 +591,7 @@ impl Controller for BBR {
         self.bbr_state.loss_state.lost_bytes += bytes;
     }
 
-    fn update_last_sent(&mut self, packet_number: u64) {
+    fn update_last_sent(&mut self, packet_number: PacketNumber) {
         self.bbr_state.max_sent_packet_number = packet_number;
     }
 
