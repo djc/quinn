@@ -74,7 +74,9 @@ impl AckAggregationState {
         // Compute how many bytes are expected to be delivered, assuming max
         // bandwidth is correct.
         let expected_bytes_acked = max_bandwidth
-            * (now - self.aggregation_epoch_start_time.unwrap_or(now)).as_micros() as u64
+            * now
+                .saturating_duration_since(self.aggregation_epoch_start_time.unwrap_or(now))
+                .as_micros() as u64
             / 1_000_000;
 
         // Reset the current aggregation epoch as soon as the ack arrival rate is
@@ -243,7 +245,7 @@ impl State {
         !app_limited
             && self
                 .probe_rtt_last_started_at
-                .map(|last| now - last > Duration::from_secs(10))
+                .map(|last| now.saturating_duration_since(last) > Duration::from_secs(10))
                 .unwrap_or(true)
     }
 
