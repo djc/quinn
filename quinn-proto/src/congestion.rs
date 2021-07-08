@@ -14,52 +14,52 @@ pub use bbr::{BBRConfig, BBR};
 pub use cubic::{Cubic, CubicConfig};
 pub use new_reno::{NewReno, NewRenoConfig};
 
-/// To help differentiate between packet sizes and packet numbers
-pub type PacketNumber = u64;
-
 /// Common interface for different congestion controllers
 pub trait Controller: Send + Debug {
-    fn on_sent(&mut self, _now: Instant, _bytes: u64) {}
+    #[allow(unused_variables)]
+    fn on_sent(&mut self, now: Instant, bytes: u64) {}
 
     /// Packet deliveries were confirmed
     ///
     /// `app_limited` indicates whether the connection was blocked on outgoing
     /// application data prior to receiving these acknowledgements.
+    #[allow(unused_variables)]
     fn on_ack(
         &mut self,
-        _now: Instant,
-        _sent: Instant,
-        _bytes: u64,
-        _app_limited: bool,
-        _rtt: &RttEstimator,
-    ) {
-    }
+        now: Instant,
+        sent: Instant,
+        bytes: u64,
+        app_limited: bool,
+        rtt: &RttEstimator,
+    ) {}
 
+    #[allow(unused_variables)]
     fn on_end_acks(
         &mut self,
-        _now: Instant,
-        _in_flight: u64,
-        _app_limited: bool,
-        _largest_packet_acked: Option<PacketNumber>,
-    ) {
-    }
+        now: Instant,
+        in_flight: u64,
+        app_limited: bool,
+        largest_packet_num_acked: Option<u64>,
+    ) {}
 
     /// Packets were deemed lost or marked congested
     ///
     /// `in_persistent_congestion` indicates whether all packets sent within the persistent
     /// congestion threshold period ending when the most recent packet in this batch was sent were
     /// lost.
+    #[allow(unused_variables)]
     fn on_congestion_event(
         &mut self,
-        _now: Instant,
-        _sent: Instant,
-        _is_persistent_congestion: bool,
-    ) {
-    }
+        now: Instant,
+        sent: Instant,
+        is_persistent_congestion: bool,
+    ) {}
 
-    fn on_loss(&mut self, _now: Instant, _sent: Instant, _bytes: u64) {}
+    #[allow(unused_variables)]
+    fn on_loss(&mut self, now: Instant, sent: Instant, bytes: u64) {}
 
-    fn update_last_sent(&mut self, _packet_number: PacketNumber) {}
+    #[allow(unused_variables)]
+    fn update_last_sent(&mut self, packet_number: u64) {}
 
     /// Number of ack-eliciting bytes that may be in flight
     fn window(&self) -> u64;

@@ -62,6 +62,7 @@ impl MinMax {
     }
 
     /// unused, but still translated from original source for completeness
+    #[allow(dead_code)]
     pub fn update_min(&mut self, current_round: u64, measurement: u64) {
         let sample = MinMaxSample {
             time: current_round,
