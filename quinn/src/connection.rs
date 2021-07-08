@@ -459,8 +459,9 @@ where
         self.0.lock("stats").inner.stats()
     }
 
-    pub fn cca(&self) -> Box<dyn Controller> {
-        self.0.lock("cca").inner.path.congestion.clone_box()
+    /// Current state of the congestion control algorithm
+    pub fn congestion(&self) -> Box<dyn Controller> {
+        self.0.lock("congestion").inner.path.congestion.clone_box()
     }
 
     /// Parameters negotiated during the handshake

@@ -16,6 +16,7 @@ pub use new_reno::{NewReno, NewRenoConfig};
 
 /// Common interface for different congestion controllers
 pub trait Controller: Send + Debug {
+    /// Packets were sent, called when the send buffer is sent, not when each packet is sent.
     #[allow(unused_variables)]
     fn on_sent(&mut self, now: Instant, bytes: u64) {}
 
@@ -31,8 +32,10 @@ pub trait Controller: Send + Debug {
         bytes: u64,
         app_limited: bool,
         rtt: &RttEstimator,
-    ) {}
+    ) {
+    }
 
+    /// Packets are acked in batches, all with the same `now` argument. This indicates one of those batches has completed.
     #[allow(unused_variables)]
     fn on_end_acks(
         &mut self,
@@ -40,7 +43,8 @@ pub trait Controller: Send + Debug {
         in_flight: u64,
         app_limited: bool,
         largest_packet_num_acked: Option<u64>,
-    ) {}
+    ) {
+    }
 
     /// Packets were deemed lost or marked congested
     ///
@@ -48,16 +52,14 @@ pub trait Controller: Send + Debug {
     /// congestion threshold period ending when the most recent packet in this batch was sent were
     /// lost.
     #[allow(unused_variables)]
-    fn on_congestion_event(
-        &mut self,
-        now: Instant,
-        sent: Instant,
-        is_persistent_congestion: bool,
-    ) {}
+    fn on_congestion_event(&mut self, now: Instant, sent: Instant, is_persistent_congestion: bool) {
+    }
 
+    /// Packets were deemed lost. This is only invoked for loss, not congestion signals. `on_congestion_event` is still invoked in the event of loss.
     #[allow(unused_variables)]
     fn on_loss(&mut self, now: Instant, sent: Instant, bytes: u64) {}
 
+    /// Updates the last packet number that was sent
     #[allow(unused_variables)]
     fn update_last_sent(&mut self, packet_number: u64) {}
 

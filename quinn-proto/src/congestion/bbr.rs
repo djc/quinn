@@ -8,15 +8,8 @@ use super::{Controller, ControllerFactory};
 use crate::congestion::bbr_min_max::MinMax;
 use crate::connection::paths::RttEstimator;
 
-// Constants based on TCP defaults.
-// The minimum CWND to ensure delayed acks don't reduce bandwidth measurements.
-// Does not inflate the pacing rate.
-const K_DEFAULT_MINIMUM_CONGESTION_WINDOW: u64 = 4 * MAX_DATAGRAM_SIZE;
-
 // The gain used for the STARTUP, equal to 2/ln(2).
 const K_DEFAULT_HIGH_GAIN: f32 = 2.885;
-// The newly derived gain for STARTUP, equal to 4 * ln(2)
-const K_DERIVED_HIGH_GAIN: f32 = 2.773;
 // The newly derived CWND gain for STARTUP, 2.
 const K_DERIVED_HIGH_CWNDGAIN: f32 = 2.0;
 // The cycle of gains used during the ProbeBw stage.
@@ -27,9 +20,6 @@ const K_ROUND_TRIPS_WITHOUT_GROWTH_BEFORE_EXITING_STARTUP: u8 = 3;
 
 // Do not allow initial congestion window to be greater than 200 packets.
 const K_MAX_INITIAL_CONGESTION_WINDOW: u64 = 200;
-
-// Do not allow initial congestion window to be smaller than 10 packets.
-const K_MIN_INITIAL_CONGESTION_WINDOW: u64 = 10;
 
 const PROBE_RTT_BASED_ON_BDP: bool = true;
 const DRAIN_TO_TARGET: bool = true;
@@ -221,8 +211,7 @@ impl State {
         }
 
         if should_advance_gain_cycling {
-            self.current_cycle_offset =
-                (self.current_cycle_offset + 1) % K_PACING_GAIN.len() as u8;
+            self.current_cycle_offset = (self.current_cycle_offset + 1) % K_PACING_GAIN.len() as u8;
             self.last_cycle_start = Some(now);
             // Stay in low gain mode until the target BDP is hit.  Low gain mode
             // will be exited immediately when the target BDP is achieved.
@@ -362,9 +351,7 @@ impl State {
         // time.
         if self.is_at_full_bandwidth {
             self.cwnd = target_window.min(self.cwnd + bytes_acked);
-        } else if (self.cwnd_gain < target_window as f32)
-            || (self.acked_bytes < self.init_cwnd)
-        {
+        } else if (self.cwnd_gain < target_window as f32) || (self.acked_bytes < self.init_cwnd) {
             // If the connection is not yet out of startup phase, do not decrease
             // the window.
             self.cwnd += bytes_acked;
@@ -550,10 +537,11 @@ impl Controller for BBR {
 
         let mut is_round_start = false;
         if bytes_acked > 0 {
-            is_round_start =
-                self.bbr_state.max_acked_packet_number > self.bbr_state.current_round_trip_end_packet_number;
+            is_round_start = self.bbr_state.max_acked_packet_number
+                > self.bbr_state.current_round_trip_end_packet_number;
             if is_round_start {
-                self.bbr_state.current_round_trip_end_packet_number = self.bbr_state.max_sent_packet_number;
+                self.bbr_state.current_round_trip_end_packet_number =
+                    self.bbr_state.max_sent_packet_number;
                 self.bbr_state.round_count += 1;
             }
         }
@@ -600,10 +588,7 @@ impl Controller for BBR {
         } else if self.bbr_state.recovery_state.in_recovery()
             && self.bbr_state.mode != Mode::Startup
         {
-            return self
-                .bbr_state
-                .cwnd
-                .min(self.bbr_state.recovery_window);
+            return self.bbr_state.cwnd.min(self.bbr_state.recovery_window);
         }
         self.bbr_state.cwnd
     }
@@ -652,7 +637,6 @@ impl BBRConfig {
 }
 
 const MAX_DATAGRAM_SIZE: u64 = 1232;
-const K_INITIAL_CONGESTION_WINDOW: u64 = 32;
 
 impl Default for BBRConfig {
     fn default() -> Self {

@@ -131,7 +131,7 @@ where
     /// The "real" local IP address which was was used to receive the initial packet.
     /// This is only populated for the server case, and if known
     local_ip: Option<IpAddr>,
-
+    /// public so that path data can be exposed to stats
     pub path: PathData,
     prev_path: Option<PathData>,
     state: State,
