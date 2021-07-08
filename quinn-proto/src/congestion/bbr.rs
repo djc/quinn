@@ -12,58 +12,58 @@ use crate::connection::paths::RttEstimator;
 // Constants based on TCP defaults.
 // The minimum CWND to ensure delayed acks don't reduce bandwidth measurements.
 // Does not inflate the pacing rate.
-const kDefaultMinimumCongestionWindow: u64 = 4 * MAX_DATAGRAM_SIZE;
+const K_DEFAULT_MINIMUM_CONGESTION_WINDOW: u64 = 4 * MAX_DATAGRAM_SIZE;
 
 // The gain used for the STARTUP, equal to 2/ln(2).
-const kDefaultHighGain: f32 = 2.885;
+const K_DEFAULT_HIGH_GAIN: f32 = 2.885;
 // The newly derived gain for STARTUP, equal to 4 * ln(2)
-const kDerivedHighGain: f32 = 2.773;
+const K_DERIVED_HIGH_GAIN: f32 = 2.773;
 // The newly derived CWND gain for STARTUP, 2.
-const kDerivedHighCWNDGain: f32 = 2.0;
-// The cycle of gains used during the PROBE_BW stage.
-const kPacingGain: [f32; 8] = [1.25, 0.75, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+const K_DERIVED_HIGH_CWNDGAIN: f32 = 2.0;
+// The cycle of gains used during the ProbeBw stage.
+const K_PACING_GAIN: [f32; 8] = [1.25, 0.75, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
 
-const kStartupGrowthTarget: f32 = 1.25;
-const kRoundTripsWithoutGrowthBeforeExitingStartup: u8 = 3;
+const K_STARTUP_GROWTH_TARGET: f32 = 1.25;
+const K_ROUND_TRIPS_WITHOUT_GROWTH_BEFORE_EXITING_STARTUP: u8 = 3;
 
 // Do not allow initial congestion window to be greater than 200 packets.
-const kMaxInitialCongestionWindow: u64 = 200;
+const K_MAX_INITIAL_CONGESTION_WINDOW: u64 = 200;
 
 // Do not allow initial congestion window to be smaller than 10 packets.
-const kMinInitialCongestionWindow: u64 = 10;
+const K_MIN_INITIAL_CONGESTION_WINDOW: u64 = 10;
 
-const probe_rtt_based_on_bdp: bool = true;
-const drain_to_target: bool = true;
+const PROBE_RTT_BASED_ON_BDP: bool = true;
+const DRAIN_TO_TARGET: bool = true;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum Mode {
     // Startup phase of the connection.
-    STARTUP,
+    Startup,
     // After achieving the highest possible bandwidth during the startup, lower
     // the pacing rate in order to drain the queue.
-    DRAIN,
+    Drain,
     // Cruising mode.
-    PROBE_BW,
+    ProbeBw,
     // Temporarily slow down sending in order to empty the buffer and measure
     // the real minimum RTT.
-    PROBE_RTT,
+    ProbeRtt,
 }
 
 // Indicates how the congestion control limits the amount of bytes in flight.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum RecoveryState {
     // Do not limit.
-    NOT_IN_RECOVERY,
+    NotInRecovery,
     // Allow an extra outstanding byte for each byte acknowledged.
-    CONSERVATION,
+    Conservation,
     // Allow two extra outstanding bytes for each byte acknowledged (slow
     // start).
-    GROWTH,
+    Growth,
 }
 
 impl RecoveryState {
     pub fn in_recovery(&self) -> bool {
-        !matches!(self, RecoveryState::NOT_IN_RECOVERY)
+        !matches!(self, RecoveryState::NotInRecovery)
     }
 }
 
@@ -143,24 +143,24 @@ pub struct State {
 
 impl State {
     fn enter_startup_mode(&mut self) {
-        self.mode = Mode::STARTUP;
+        self.mode = Mode::Startup;
         self.bbr_pacing_gain = self.bbr_high_gain;
         self.bbr_cwnd_gain = self.bbr_high_cwnd_gain;
     }
 
     fn enter_probe_bandwidth_mode(&mut self, now: Instant) {
-        self.mode = Mode::PROBE_BW;
-        self.bbr_cwnd_gain = kDerivedHighCWNDGain;
+        self.mode = Mode::ProbeBw;
+        self.bbr_cwnd_gain = K_DERIVED_HIGH_CWNDGAIN;
         self.bbr_last_cycle_start = Some(now);
         // Pick a random offset for the gain cycle out of {0, 2..7} range. 1 is
         // excluded because in that case increased gain and decreased gain would not
         // follow each other.
-        let mut rand_index = rand::random::<u8>() % (kPacingGain.len() as u8 - 1);
+        let mut rand_index = rand::random::<u8>() % (K_PACING_GAIN.len() as u8 - 1);
         if rand_index >= 1 {
             rand_index += 1;
         }
         self.bbr_current_cycle_offset = rand_index;
-        self.bbr_pacing_gain = kPacingGain[rand_index as usize];
+        self.bbr_pacing_gain = K_PACING_GAIN[rand_index as usize];
     }
 
     fn update_recovery_state(&mut self, is_round_start: bool) {
@@ -170,8 +170,8 @@ impl State {
         }
         match self.recovery_state {
             // Enter conservation on the first loss.
-            RecoveryState::NOT_IN_RECOVERY if self.loss_state.has_losses() => {
-                self.recovery_state = RecoveryState::CONSERVATION;
+            RecoveryState::NotInRecovery if self.loss_state.has_losses() => {
+                self.recovery_state = RecoveryState::Conservation;
                 // This will cause the |bbr_recovery_window| to be set to the
                 // correct value in CalculateRecoveryWindow().
                 self.bbr_recovery_window = 0;
@@ -179,15 +179,15 @@ impl State {
                 // round, extend the current round as if it were started right now.
                 self.bbr_current_round_trip_end = self.max_sent_packet_number;
             }
-            RecoveryState::GROWTH | RecoveryState::CONSERVATION => {
-                if self.recovery_state == RecoveryState::CONSERVATION && is_round_start {
-                    self.recovery_state = RecoveryState::GROWTH;
+            RecoveryState::Growth | RecoveryState::Conservation => {
+                if self.recovery_state == RecoveryState::Conservation && is_round_start {
+                    self.recovery_state = RecoveryState::Growth;
                 }
                 // Exit recovery if appropriate.
                 if !self.loss_state.has_losses()
                     && self.max_acked_packet_number > self.bbr_end_recovery_at
                 {
-                    self.recovery_state = RecoveryState::NOT_IN_RECOVERY;
+                    self.recovery_state = RecoveryState::NotInRecovery;
                 }
             }
             _ => {}
@@ -223,28 +223,28 @@ impl State {
 
         if should_advance_gain_cycling {
             self.bbr_current_cycle_offset =
-                (self.bbr_current_cycle_offset + 1) % kPacingGain.len() as u8;
+                (self.bbr_current_cycle_offset + 1) % K_PACING_GAIN.len() as u8;
             self.bbr_last_cycle_start = Some(now);
             // Stay in low gain mode until the target BDP is hit.  Low gain mode
             // will be exited immediately when the target BDP is achieved.
-            if drain_to_target
+            if DRAIN_TO_TARGET
                 && self.bbr_pacing_gain < 1.0
-                && kPacingGain[self.bbr_current_cycle_offset as usize] == 1.0
+                && K_PACING_GAIN[self.bbr_current_cycle_offset as usize] == 1.0
                 && in_flight > self.get_target_cwnd(1.0)
             {
                 return;
             }
-            self.bbr_pacing_gain = kPacingGain[self.bbr_current_cycle_offset as usize];
+            self.bbr_pacing_gain = K_PACING_GAIN[self.bbr_current_cycle_offset as usize];
         }
     }
 
     fn maybe_exit_startup_or_drain(&mut self, now: Instant, in_flight: u64) {
-        if self.mode == Mode::STARTUP && self.is_at_full_bandwidth {
-            self.mode = Mode::DRAIN;
+        if self.mode == Mode::Startup && self.is_at_full_bandwidth {
+            self.mode = Mode::Drain;
             self.bbr_pacing_gain = self.bbr_drain_gain;
             self.bbr_cwnd_gain = self.bbr_high_cwnd_gain;
         }
-        if self.mode == Mode::DRAIN {
+        if self.mode == Mode::Drain {
             if in_flight <= self.get_target_cwnd(1.0) {
                 self.enter_probe_bandwidth_mode(now);
             }
@@ -267,24 +267,24 @@ impl State {
         app_limited: bool,
     ) {
         let min_rtt_expired = self.is_min_rtt_expired(now, app_limited);
-        if min_rtt_expired && !self.exiting_quiescence && self.mode != Mode::PROBE_RTT {
-            self.mode = Mode::PROBE_RTT;
+        if min_rtt_expired && !self.exiting_quiescence && self.mode != Mode::ProbeRtt {
+            self.mode = Mode::ProbeRtt;
             self.bbr_pacing_gain = 1.0;
-            // Do not decide on the time to exit PROBE_RTT until the
+            // Do not decide on the time to exit ProbeRtt until the
             // |bytes_in_flight| is at the target small value.
             self.bbr_exit_probe_rtt_at = None;
             self.bbr_probe_rtt_last_started_at = Some(now);
         }
 
-        if self.mode == Mode::PROBE_RTT {
+        if self.mode == Mode::ProbeRtt {
             if self.bbr_exit_probe_rtt_at.is_none() {
                 // If the window has reached the appropriate size, schedule exiting
-                // PROBE_RTT.  The CWND during PROBE_RTT is
+                // ProbeRtt.  The CWND during ProbeRtt is
                 // kMinimumCongestionWindow, but we allow an extra packet since QUIC
                 // checks CWND before sending a packet.
                 if bytes_in_flight < self.get_probe_rtt_cwnd() + MAX_DATAGRAM_SIZE {
-                    const kProbeRttTime: Duration = Duration::from_millis(200);
-                    self.bbr_exit_probe_rtt_at = Some(now + kProbeRttTime);
+                    const K_PROBE_RTT_TIME: Duration = Duration::from_millis(200);
+                    self.bbr_exit_probe_rtt_at = Some(now + K_PROBE_RTT_TIME);
                 }
             } else {
                 if is_round_start && now >= self.bbr_exit_probe_rtt_at.unwrap() {
@@ -313,9 +313,9 @@ impl State {
     }
 
     fn get_probe_rtt_cwnd(&self) -> u64 {
-        const kModerateProbeRttMultiplier: f32 = 0.75;
-        if probe_rtt_based_on_bdp {
-            return self.get_target_cwnd(kModerateProbeRttMultiplier);
+        const K_MODERATE_PROBE_RTT_MULTIPLIER: f32 = 0.75;
+        if PROBE_RTT_BASED_ON_BDP {
+            return self.get_target_cwnd(K_MODERATE_PROBE_RTT_MULTIPLIER);
         }
         return self.bbr_min_cwnd;
     }
@@ -346,7 +346,7 @@ impl State {
     }
 
     fn calculate_cwnd(&mut self, bytes_acked: u64, excess_acked: u64) {
-        if self.mode == Mode::PROBE_RTT {
+        if self.mode == Mode::ProbeRtt {
             return;
         }
         let mut target_window = self.get_target_cwnd(self.bbr_cwnd_gain);
@@ -392,12 +392,12 @@ impl State {
         if self.bbr_recovery_window >= bytes_lost {
             self.bbr_recovery_window -= bytes_lost;
         } else {
-            const kMaxSegmentSize: u64 = MAX_DATAGRAM_SIZE;
-            self.bbr_recovery_window = kMaxSegmentSize;
+            const K_MAX_SEGMENT_SIZE: u64 = MAX_DATAGRAM_SIZE;
+            self.bbr_recovery_window = K_MAX_SEGMENT_SIZE;
         }
         // In CONSERVATION mode, just subtracting losses is sufficient.  In GROWTH,
         // release additional |bytes_acked| to achieve a slow-start-like behavior.
-        if self.recovery_state == RecoveryState::GROWTH {
+        if self.recovery_state == RecoveryState::Growth {
             self.bbr_recovery_window += bytes_acked;
         }
 
@@ -414,7 +414,7 @@ impl State {
         if app_limited {
             return;
         }
-        let target = (self.bbr_bw_at_last_round as f64 * kStartupGrowthTarget as f64) as u64;
+        let target = (self.bbr_bw_at_last_round as f64 * K_STARTUP_GROWTH_TARGET as f64) as u64;
         let bw = self.max_bandwidth.get_estimate();
         if bw >= target {
             self.bbr_bw_at_last_round = bw;
@@ -424,7 +424,7 @@ impl State {
         }
 
         self.bbr_round_wo_bw_gain += 1;
-        if self.bbr_round_wo_bw_gain >= kRoundTripsWithoutGrowthBeforeExitingStartup as u64
+        if self.bbr_round_wo_bw_gain >= K_ROUND_TRIPS_WITHOUT_GROWTH_BEFORE_EXITING_STARTUP as u64
             || (self.recovery_state.in_recovery())
         {
             self.is_at_full_bandwidth = true;
@@ -464,16 +464,16 @@ impl BBR {
             bbr_state: State {
                 max_bandwidth: BandwidthEstimation::default(),
                 acked_bytes: 0,
-                mode: Mode::STARTUP,
+                mode: Mode::Startup,
                 loss_state: Default::default(),
-                recovery_state: RecoveryState::NOT_IN_RECOVERY,
+                recovery_state: RecoveryState::NotInRecovery,
                 bbr_recovery_window: 0,
                 is_at_full_bandwidth: false,
-                bbr_pacing_gain: kDefaultHighGain,
-                bbr_high_gain: kDefaultHighGain,
-                bbr_drain_gain: 1.0 / kDefaultHighGain,
-                bbr_cwnd_gain: kDefaultHighGain,
-                bbr_high_cwnd_gain: kDefaultHighGain,
+                bbr_pacing_gain: K_DEFAULT_HIGH_GAIN,
+                bbr_high_gain: K_DEFAULT_HIGH_GAIN,
+                bbr_drain_gain: 1.0 / K_DEFAULT_HIGH_GAIN,
+                bbr_cwnd_gain: K_DEFAULT_HIGH_GAIN,
+                bbr_high_cwnd_gain: K_DEFAULT_HIGH_GAIN,
                 bbr_last_cycle_start: None,
                 bbr_current_cycle_offset: 0,
                 bbr_init_cwnd: initial_window,
@@ -561,7 +561,7 @@ impl Controller for BBR {
 
         self.bbr_state.update_recovery_state(is_round_start);
 
-        if self.bbr_state.mode == Mode::PROBE_BW {
+        if self.bbr_state.mode == Mode::ProbeBw {
             self.bbr_state.update_gain_cycle_phase(now, in_flight);
         }
 
@@ -596,10 +596,10 @@ impl Controller for BBR {
     }
 
     fn window(&self) -> u64 {
-        if self.bbr_state.mode == Mode::PROBE_RTT {
+        if self.bbr_state.mode == Mode::ProbeRtt {
             return self.bbr_state.get_probe_rtt_cwnd();
         } else if self.bbr_state.recovery_state.in_recovery()
-            && self.bbr_state.mode != Mode::STARTUP
+            && self.bbr_state.mode != Mode::Startup
         {
             return self
                 .bbr_state
@@ -653,13 +653,13 @@ impl BBRConfig {
 }
 
 const MAX_DATAGRAM_SIZE: u64 = 1232;
-const kInitialCongestionWindow: u64 = 32;
+const K_INITIAL_CONGESTION_WINDOW: u64 = 32;
 
 impl Default for BBRConfig {
     fn default() -> Self {
         Self {
             max_datagram_size: MAX_DATAGRAM_SIZE,
-            initial_window: kMaxInitialCongestionWindow * MAX_DATAGRAM_SIZE,
+            initial_window: K_MAX_INITIAL_CONGESTION_WINDOW * MAX_DATAGRAM_SIZE,
             minimum_window: 4 * MAX_DATAGRAM_SIZE,
         }
     }
