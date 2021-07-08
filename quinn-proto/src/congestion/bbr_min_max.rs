@@ -54,7 +54,11 @@ impl MinMax {
     }
 
     fn fill(&mut self, sample: MinMaxSample) {
-        self.samples.fill(sample);
+        // unable to use fill until 1.50.0 is supported
+        // self.samples.fill(sample);
+        for i in 0..self.samples.len() {
+            self.samples[i] = sample;
+        }
     }
 
     pub fn reset(&mut self) {
