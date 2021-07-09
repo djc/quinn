@@ -219,7 +219,7 @@ impl State {
             // will be exited immediately when the target BDP is achieved.
             if DRAIN_TO_TARGET
                 && self.pacing_gain < 1.0
-                && K_PACING_GAIN[self.current_cycle_offset as usize] == 1.0
+                && (K_PACING_GAIN[self.current_cycle_offset as usize] - 1.0).abs() < f32::EPSILON
                 && in_flight > self.get_target_cwnd(1.0)
             {
                 return;
@@ -234,10 +234,8 @@ impl State {
             self.pacing_gain = self.drain_gain;
             self.cwnd_gain = self.high_cwnd_gain;
         }
-        if self.mode == Mode::Drain {
-            if in_flight <= self.get_target_cwnd(1.0) {
-                self.enter_probe_bandwidth_mode(now);
-            }
+        if self.mode == Mode::Drain && in_flight <= self.get_target_cwnd(1.0) {
+            self.enter_probe_bandwidth_mode(now);
         }
     }
 
@@ -276,13 +274,11 @@ impl State {
                     const K_PROBE_RTT_TIME: Duration = Duration::from_millis(200);
                     self.exit_probe_rtt_at = Some(now + K_PROBE_RTT_TIME);
                 }
-            } else {
-                if is_round_start && now >= self.exit_probe_rtt_at.unwrap() {
-                    if !self.is_at_full_bandwidth {
-                        self.enter_startup_mode();
-                    } else {
-                        self.enter_probe_bandwidth_mode(now);
-                    }
+            } else if is_round_start && now >= self.exit_probe_rtt_at.unwrap() {
+                if !self.is_at_full_bandwidth {
+                    self.enter_startup_mode();
+                } else {
+                    self.enter_probe_bandwidth_mode(now);
                 }
             }
         }
@@ -307,7 +303,7 @@ impl State {
         if PROBE_RTT_BASED_ON_BDP {
             return self.get_target_cwnd(K_MODERATE_PROBE_RTT_MULTIPLIER);
         }
-        return self.min_cwnd;
+        self.min_cwnd
     }
 
     fn calculate_pacing_rate(&mut self) {
@@ -323,7 +319,7 @@ impl State {
 
         // Pace at the rate of initial_window / RTT as soon as RTT measurements are
         // available.
-        if self.pacing_rate == 0 && !(self.min_rtt.as_nanos() == 0) {
+        if self.pacing_rate == 0 && self.min_rtt.as_nanos() != 0 {
             self.pacing_rate =
                 BandwidthEstimation::bw_from_delta(self.init_cwnd, self.min_rtt).unwrap();
             return;
@@ -533,9 +529,9 @@ impl Controller for BBR {
         self.bbr_state
             .max_bandwidth
             .end_acks(self.bbr_state.round_count, app_limited);
-        largest_packet_num_acked.map(|largest_acked_packet| {
+        if let Some(largest_acked_packet) = largest_packet_num_acked {
             self.bbr_state.max_acked_packet_number = largest_acked_packet;
-        });
+        }
 
         let mut is_round_start = false;
         if bytes_acked > 0 {
