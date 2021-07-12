@@ -75,7 +75,13 @@ impl Controller for NewReno {
         }
     }
 
-    fn on_congestion_event(&mut self, now: Instant, sent: Instant, is_persistent_congestion: bool) {
+    fn on_congestion_event(
+        &mut self,
+        now: Instant,
+        sent: Instant,
+        is_persistent_congestion: bool,
+        _lost_bytes: u64,
+    ) {
         if sent <= self.recovery_start_time {
             return;
         }

@@ -51,13 +51,14 @@ pub trait Controller: Send + Debug {
     /// `in_persistent_congestion` indicates whether all packets sent within the persistent
     /// congestion threshold period ending when the most recent packet in this batch was sent were
     /// lost.
-    #[allow(unused_variables)]
-    fn on_congestion_event(&mut self, now: Instant, sent: Instant, is_persistent_congestion: bool) {
-    }
-
-    /// Packets were deemed lost. This is only invoked for loss, not congestion signals. `on_congestion_event` is still invoked in the event of loss.
-    #[allow(unused_variables)]
-    fn on_loss(&mut self, now: Instant, sent: Instant, bytes: u64) {}
+    /// `lost_bytes` indicates how many bytes were lost. This value will be 0 for ECN triggers.
+    fn on_congestion_event(
+        &mut self,
+        now: Instant,
+        sent: Instant,
+        is_persistent_congestion: bool,
+        lost_bytes: u64,
+    );
 
     /// Updates the last packet number that was sent
     #[allow(unused_variables)]

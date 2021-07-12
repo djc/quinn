@@ -1212,7 +1212,7 @@ where
                 self.stats.path.congestion_events += 1;
                 self.path
                     .congestion
-                    .on_congestion_event(now, largest_sent_time, false);
+                    .on_congestion_event(now, largest_sent_time, false, 0);
             }
         }
     }
@@ -1354,10 +1354,8 @@ where
                     now,
                     largest_lost_sent,
                     in_persistent_congestion,
+                    size_of_lost_packets,
                 );
-                self.path
-                    .congestion
-                    .on_loss(now, largest_lost_sent, size_of_lost_packets)
             }
         }
     }

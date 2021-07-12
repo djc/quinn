@@ -572,8 +572,14 @@ impl Controller for BBR {
         self.bbr_state.loss_state.reset();
     }
 
-    fn on_loss(&mut self, _now: Instant, _sent: Instant, bytes: u64) {
-        self.bbr_state.loss_state.lost_bytes += bytes;
+    fn on_congestion_event(
+        &mut self,
+        _now: Instant,
+        _sent: Instant,
+        _is_persistent_congestion: bool,
+        lost_bytes: u64,
+    ) {
+        self.bbr_state.loss_state.lost_bytes += lost_bytes;
     }
 
     fn update_last_sent(&mut self, packet_number: u64) {
