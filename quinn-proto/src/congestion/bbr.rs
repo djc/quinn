@@ -600,7 +600,7 @@ impl Controller for BBR {
     }
 }
 
-/// Configuration for the `BBR` congestion controller
+/// Configuration for the [`BBR`] congestion controller
 #[derive(Debug, Clone)]
 pub struct BBRConfig {
     max_datagram_size: u64,
