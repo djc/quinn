@@ -434,6 +434,9 @@ impl LossState {
 /// Experimental! Use at your own risk.
 ///
 /// Aims for reduced buffer bloat and improved performance over high bandwidth-delay product networks.
+/// Based on google's quiche implementation https://source.chromium.org/chromium/chromium/src/+/master:net/third_party/quiche/src/quic/core/congestion_control/bbr_sender.cc
+/// of BBR https://datatracker.ietf.org/doc/html/draft-cardwell-iccrg-bbr-congestion-control.
+/// More discussion and links at https://groups.google.com/g/bbr-dev.
 #[derive(Debug, Clone)]
 pub struct BBR {
     config: Arc<BBRConfig>,
