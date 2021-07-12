@@ -460,7 +460,7 @@ where
     }
 
     /// Current state of the congestion control algorithm
-    pub fn congestion(&self) -> Box<dyn Controller> {
+    pub fn congestion_state(&self) -> Box<dyn Controller> {
         self.0.lock("congestion").inner.path.congestion.clone_box()
     }
 
