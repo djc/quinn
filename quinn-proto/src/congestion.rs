@@ -16,7 +16,7 @@ pub use new_reno::{NewReno, NewRenoConfig};
 
 /// Common interface for different congestion controllers
 pub trait Controller: Send + Debug {
-    /// Packets were sent, called when the send buffer is sent, not when each packet is sent.
+    /// One or more packets were just sent
     #[allow(unused_variables)]
     fn on_sent(&mut self, now: Instant, bytes: u64) {}
 
