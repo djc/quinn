@@ -74,6 +74,7 @@ pub use streams::{
 };
 
 mod timer;
+use crate::congestion::Controller;
 use timer::{Timer, TimerTable};
 
 /// Protocol state and logic for a single QUIC connection
@@ -131,8 +132,7 @@ where
     /// The "real" local IP address which was was used to receive the initial packet.
     /// This is only populated for the server case, and if known
     local_ip: Option<IpAddr>,
-    /// public so that path data can be exposed to stats
-    pub path: PathData,
+    path: PathData,
     prev_path: Option<PathData>,
     state: State,
     side: Side,
@@ -1092,6 +1092,11 @@ where
     /// Current best estimate of this connection's latency (round-trip-time)
     pub fn rtt(&self) -> Duration {
         self.path.rtt.get()
+    }
+
+    /// Current state of this connection's congestion controller
+    pub fn congestion_state(&self) -> Box<dyn Controller> {
+        self.path.congestion.clone_box()
     }
 
     fn on_ack_received(
@@ -2966,7 +2971,7 @@ where
 
     /// Number of bytes worth of non-ack-only packets that may be sent
     #[cfg(test)]
-    pub(crate) fn congestion_state(&self) -> u64 {
+    pub(crate) fn congestion_window(&self) -> u64 {
         self.path
             .congestion
             .window()

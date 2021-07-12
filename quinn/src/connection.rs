@@ -461,7 +461,7 @@ where
 
     /// Current state of the congestion control algorithm
     pub fn congestion_state(&self) -> Box<dyn Controller> {
-        self.0.lock("congestion").inner.path.congestion.clone_box()
+        self.0.lock("congestion_state").inner.congestion_state()
     }
 
     /// Parameters negotiated during the handshake
