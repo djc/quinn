@@ -164,7 +164,6 @@ impl Controller for Cubic {
         }
     }
 
-    #[allow(clippy::branches_sharing_code)] // False positive, see discussion inline
     fn on_congestion_event(
         &mut self,
         now: Instant,
@@ -182,7 +181,6 @@ impl Controller for Cubic {
 
         self.recovery_start_time = Some(now);
 
-        // clippy doesn't like the duplicate line, but it would change behaviour to move it
         // Fast convergence
         #[allow(clippy::branches_sharing_code)]
         // https://github.com/rust-lang/rust-clippy/issues/7198
