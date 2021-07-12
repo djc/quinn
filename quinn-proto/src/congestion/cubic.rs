@@ -164,7 +164,7 @@ impl Controller for Cubic {
         }
     }
 
-    #[allow(clippy::branches_sharing_code)] // self.cubic_state.w_last_max = self.cubic_state.w_max;
+    #[allow(clippy::branches_sharing_code)] // False positive, see discussion inline
     fn on_congestion_event(
         &mut self,
         now: Instant,
