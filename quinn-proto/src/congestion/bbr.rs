@@ -98,7 +98,7 @@ impl AckAggregationState {
 }
 
 #[derive(Debug, Clone)]
-pub struct State {
+struct State {
     max_bandwidth: BandwidthEstimation,
     acked_bytes: u64,
     mode: Mode,
@@ -417,7 +417,7 @@ impl State {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct LossState {
+struct LossState {
     lost_bytes: u64,
 }
 
