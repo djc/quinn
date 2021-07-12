@@ -65,31 +65,7 @@ impl MinMax {
         self.fill(Default::default())
     }
 
-    /// unused, but still translated from original source for completeness
-    #[allow(dead_code)]
-    pub fn update_min(&mut self, current_round: u64, measurement: u64) {
-        let sample = MinMaxSample {
-            time: current_round,
-            value: measurement,
-        };
-
-        if self.samples[0].value == 0 /* uninitialised */
-            || /* found new min? */ sample.value <= self.samples[0].value
-            || /* nothing left in window? */ sample.time - self.samples[2].time > self.window
-        {
-            self.fill(sample); /* forget earlier samples */
-            return;
-        }
-
-        if sample.value <= self.samples[1].value {
-            self.samples[2] = sample;
-            self.samples[1] = sample;
-        } else if sample.value <= self.samples[2].value {
-            self.samples[2] = sample;
-        }
-        self.subwin_update(sample);
-    }
-
+    /// update_min is also defined in the original source, but removed here since it is not used.
     pub fn update_max(&mut self, current_round: u64, measurement: u64) {
         let sample = MinMaxSample {
             time: current_round,
