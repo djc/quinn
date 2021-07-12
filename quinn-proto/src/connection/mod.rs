@@ -766,7 +766,9 @@ where
             }
             let last_packet_number = builder.exact_number;
             builder.finish_and_track(now, self, sent_frames, &mut buf);
-            self.path.congestion.on_sent(now, buf.len() as u64, last_packet_number);
+            self.path
+                .congestion
+                .on_sent(now, buf.len() as u64, last_packet_number);
         }
 
         self.app_limited = buf.is_empty() && !congestion_blocked;
