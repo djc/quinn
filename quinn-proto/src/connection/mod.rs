@@ -764,8 +764,9 @@ where
             if pad_datagram {
                 builder.pad_to(MIN_INITIAL_SIZE);
             }
-            self.path.congestion.update_last_sent(builder.exact_number);
+            let last_packet_number = builder.exact_number;
             builder.finish_and_track(now, self, sent_frames, &mut buf);
+            self.path.congestion.on_sent(now, buf.len() as u64, last_packet_number);
         }
 
         self.app_limited = buf.is_empty() && !congestion_blocked;
@@ -776,7 +777,6 @@ where
 
         trace!("sending {} bytes in {} datagrams", buf.len(), num_datagrams);
         self.path.total_sent = self.path.total_sent.saturating_add(buf.len() as u64);
-        self.path.congestion.on_sent(now, buf.len() as u64);
 
         self.stats.udp_tx.datagrams += num_datagrams as u64;
         self.stats.udp_tx.bytes += buf.len() as u64;

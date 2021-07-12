@@ -487,9 +487,11 @@ impl BBR {
 }
 
 impl Controller for BBR {
-    fn on_sent(&mut self, now: Instant, bytes: u64) {
+    fn on_sent(&mut self, now: Instant, bytes: u64, last_packet_number: u64) {
+        self.bbr_state.max_sent_packet_number = last_packet_number;
         self.bbr_state.max_bandwidth.on_sent(now, bytes);
     }
+
     fn on_ack(
         &mut self,
         now: Instant,
@@ -580,10 +582,6 @@ impl Controller for BBR {
         lost_bytes: u64,
     ) {
         self.bbr_state.loss_state.lost_bytes += lost_bytes;
-    }
-
-    fn update_last_sent(&mut self, packet_number: u64) {
-        self.bbr_state.max_sent_packet_number = packet_number;
     }
 
     fn window(&self) -> u64 {

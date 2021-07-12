@@ -18,7 +18,7 @@ pub use new_reno::{NewReno, NewRenoConfig};
 pub trait Controller: Send + Debug {
     /// One or more packets were just sent
     #[allow(unused_variables)]
-    fn on_sent(&mut self, now: Instant, bytes: u64) {}
+    fn on_sent(&mut self, now: Instant, bytes: u64, last_packet_number: u64) {}
 
     /// Packet deliveries were confirmed
     ///
@@ -59,10 +59,6 @@ pub trait Controller: Send + Debug {
         is_persistent_congestion: bool,
         lost_bytes: u64,
     );
-
-    /// Updates the last packet number that was sent
-    #[allow(unused_variables)]
-    fn update_last_sent(&mut self, packet_number: u64) {}
 
     /// Number of ack-eliciting bytes that may be in flight
     fn window(&self) -> u64;
