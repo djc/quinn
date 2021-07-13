@@ -862,8 +862,8 @@ mod tests {
         assert_eq!(
             buf[..],
             hex!(
-                "ccff00001d0806b858ec6f80452b00004021b1
-                 b35cedb8ac6906c20c52b09ad2719228310d8f8a51746a75b853060a4e3c0e6e"
+                "c6ff00001d0806b858ec6f80452b0000402180
+                 3ef50807b84191a196f760a6dad1e9d1c6b3e7486fc03729ad1174a9d182574a"
             )[..]
         );
 
