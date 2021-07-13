@@ -1,7 +1,5 @@
 use std::fmt;
 
-use rustls::internal::pemfile;
-
 /// A single TLS certificate
 #[derive(Debug, Clone)]
 pub struct Certificate {
@@ -18,9 +16,12 @@ impl Certificate {
 
     /// Parse a PEM-formatted certificate
     pub fn from_pem(pem: &[u8]) -> Result<Self, ParseError> {
-        let certs = pemfile::certs(&mut &*pem).map_err(|()| ParseError("invalid pem cert"))?;
+        let certs =
+            rustls_pemfile::certs(&mut &*pem).map_err(|_| ParseError("invalid pem cert"))?;
         if let Some(pem) = certs.into_iter().next() {
-            return Ok(Self { inner: pem });
+            return Ok(Self {
+                inner: rustls::Certificate(pem),
+            });
         }
 
         Err(ParseError("no cert found"))
@@ -52,9 +53,11 @@ impl CertificateChain {
     /// let cert_chain = quinn_proto::PrivateKey::from_pem(&pem).expect("error parsing certificates");
     /// ```
     pub fn from_pem(pem: &[u8]) -> Result<Self, ParseError> {
+        let der_certs = rustls_pemfile::certs(&mut &*pem)
+            .map_err(|_| ParseError("malformed certificate chain"))?;
+
         Ok(Self {
-            certs: pemfile::certs(&mut &*pem)
-                .map_err(|()| ParseError("malformed certificate chain"))?,
+            certs: der_certs.into_iter().map(rustls::Certificate).collect(),
         })
     }
 
@@ -80,9 +83,11 @@ impl std::iter::FromIterator<Certificate> for CertificateChain {
     }
 }
 
-impl From<Vec<rustls::Certificate>> for CertificateChain {
-    fn from(certs: Vec<rustls::Certificate>) -> Self {
-        Self { certs }
+impl From<&[rustls::Certificate]> for CertificateChain {
+    fn from(certs: &[rustls::Certificate]) -> Self {
+        Self {
+            certs: certs.to_vec(),
+        }
     }
 }
 
@@ -118,16 +123,22 @@ impl PrivateKey {
     /// let key = quinn_proto::PrivateKey::from_pem(&pem).expect("error parsing key");
     /// ```
     pub fn from_pem(pem: &[u8]) -> Result<Self, ParseError> {
-        let pkcs8 = pemfile::pkcs8_private_keys(&mut &*pem)
-            .map_err(|()| ParseError("malformed PKCS #8 private key"))?;
+        let pkcs8 = rustls_pemfile::pkcs8_private_keys(&mut &*pem)
+            .map_err(|_| ParseError("malformed PKCS #8 private key"))?;
         if let Some(x) = pkcs8.into_iter().next() {
-            return Ok(Self { inner: x });
+            return Ok(Self {
+                inner: rustls::PrivateKey(x),
+            });
         }
-        let rsa = pemfile::rsa_private_keys(&mut &*pem)
-            .map_err(|()| ParseError("malformed PKCS #1 private key"))?;
+
+        let rsa = rustls_pemfile::rsa_private_keys(&mut &*pem)
+            .map_err(|_| ParseError("malformed PKCS #1 private key"))?;
         if let Some(x) = rsa.into_iter().next() {
-            return Ok(Self { inner: x });
+            return Ok(Self {
+                inner: rustls::PrivateKey(x),
+            });
         }
+
         Err(ParseError("no private key found"))
     }
 

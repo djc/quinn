@@ -67,20 +67,14 @@ async fn run(options: Opt) -> Result<()> {
         .next()
         .ok_or_else(|| anyhow!("couldn't resolve to an address"))?;
 
-    let mut endpoint = quinn::Endpoint::builder();
-    let mut client_config = quinn::ClientConfigBuilder::default();
-    client_config.protocols(common::ALPN_QUIC_HTTP);
-    if options.keylog {
-        client_config.enable_keylog();
-    }
+    let mut certs = Vec::new();
     if let Some(ca_path) = options.ca {
-        client_config
-            .add_certificate_authority(quinn::Certificate::from_der(&fs::read(&ca_path)?)?)?;
+        certs.push(quinn::Certificate::from_der(&fs::read(&ca_path)?)?);
     } else {
         let dirs = directories_next::ProjectDirs::from("org", "quinn", "quinn-examples").unwrap();
         match fs::read(dirs.data_local_dir().join("cert.der")) {
             Ok(cert) => {
-                client_config.add_certificate_authority(quinn::Certificate::from_der(&cert)?)?;
+                certs.push(quinn::Certificate::from_der(&cert)?);
             }
             Err(ref e) if e.kind() == io::ErrorKind::NotFound => {
                 info!("local server certificate not found");
@@ -91,7 +85,14 @@ async fn run(options: Opt) -> Result<()> {
         }
     }
 
-    endpoint.default_client_config(client_config.build());
+    let mut endpoint = quinn::Endpoint::builder();
+    let client_config = quinn::ClientConfig::with_root_certificates(certs, None)?;
+    let mut client_config_builder = quinn::ClientConfigBuilder::new(client_config);
+    client_config_builder.protocols(common::ALPN_QUIC_HTTP);
+    if options.keylog {
+        client_config_builder.enable_keylog();
+    }
+    endpoint.default_client_config(client_config_builder.build());
 
     let (endpoint, _) = endpoint.bind(&"[::]:0".parse().unwrap())?;
 

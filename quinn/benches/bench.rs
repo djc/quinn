@@ -10,7 +10,7 @@ use tokio::runtime::{Builder, Runtime};
 use tracing::error_span;
 use tracing_futures::Instrument as _;
 
-use quinn::{ClientConfigBuilder, Endpoint, ServerConfigBuilder};
+use quinn::Endpoint;
 
 benchmark_group!(
     benches,
@@ -82,19 +82,15 @@ impl Context {
         let cert = quinn::Certificate::from_der(&cert.serialize_der().unwrap()).unwrap();
         let cert_chain = quinn::CertificateChain::from_certs(vec![cert.clone()]);
 
-        let mut transport = quinn::TransportConfig::default();
-        transport.max_concurrent_uni_streams(1024).unwrap();
-        let mut server_config = quinn::ServerConfig::default();
-        server_config.transport = Arc::new(transport);
-        let mut server_config = ServerConfigBuilder::new(server_config);
-        server_config.certificate(cert_chain, key).unwrap();
-
-        let mut client_config = ClientConfigBuilder::default();
-        client_config.add_certificate_authority(cert).unwrap();
+        let mut server_config = quinn::ServerConfig::with_single_cert(cert_chain, key).unwrap();
+        Arc::get_mut(&mut server_config.transport)
+            .unwrap()
+            .max_concurrent_uni_streams(1024)
+            .unwrap();
 
         Self {
-            server_config: server_config.build(),
-            client_config: client_config.build(),
+            server_config,
+            client_config: quinn::ClientConfig::with_root_certificates(vec![cert], None).unwrap(),
         }
     }
 

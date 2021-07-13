@@ -14,18 +14,18 @@ futures = "0.3.8"
 http = "0.2"
 http-body = "0.4"
 hyper = { version = "0.14.1", features = ["client", "server", "http2"] }
-hyper-rustls = "0.22.1"
+hyper-rustls = { git = "https://github.com/djc/hyper-rustls", rev = "01982286851da993a984aae5990ed85072b72073" }
 lazy_static = "1"
 quinn = { path = "../quinn" }
 quinn-proto = { path = "../quinn-proto" }
-rustls = { version = "0.19", features = ["dangerous_configuration"] }
+rustls = { git = "https://github.com/djc/rustls", rev = "d0a6142e74c84a38a91e166304918daea2902478", features = ["dangerous_configuration", "quic"] }
 structopt = "0.3.0"
 tokio = { version = "1.0.1", features = ["io-util", "macros", "rt", "rt-multi-thread"] }
-tokio-rustls = "0.22"
+tokio-rustls = { version = "0.23", git = "https://github.com/tokio-rs/tls", rev = "b433932bf1025960e5b99f353cf8eee4ce2f08f3" }
 tracing = "0.1.10"
 tracing-subscriber = { version = "0.2.5", default-features = false, features = ["env-filter", "fmt", "ansi", "chrono"]}
 tracing-futures = { version = "0.2.0", default-features = false, features = ["std-future"] }
-webpki = "0.21"
+webpki = "0.22"
 
 [[bin]]
 name = "main"

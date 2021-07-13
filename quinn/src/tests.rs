@@ -19,8 +19,8 @@ use tracing_futures::Instrument as _;
 use tracing_subscriber::EnvFilter;
 
 use super::{
-    ClientConfigBuilder, Endpoint, Incoming, NewConnection, RecvStream, SendStream,
-    ServerConfigBuilder, TransportConfig,
+    ClientConfig, ClientConfigBuilder, Endpoint, Incoming, NewConnection, RecvStream, SendStream,
+    TransportConfig,
 };
 
 #[test]
@@ -34,7 +34,7 @@ fn handshake_timeout() {
             .unwrap()
     };
 
-    let mut client_config = crate::ClientConfig::default();
+    let mut client_config = crate::ClientConfig::with_root_certificates(vec![], None).unwrap();
     const IDLE_TIMEOUT: Duration = Duration::from_millis(500);
     let mut transport_config = crate::TransportConfig::default();
     transport_config
@@ -66,7 +66,8 @@ fn handshake_timeout() {
 #[tokio::test]
 async fn close_endpoint() {
     let _guard = subscribe();
-    let endpoint = Endpoint::builder();
+    let mut endpoint = Endpoint::builder();
+    endpoint.default_client_config(ClientConfig::with_root_certificates(vec![], None).unwrap());
     let (endpoint, incoming) = endpoint
         .bind(&SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .unwrap();
@@ -231,17 +232,15 @@ async fn accept_after_close() {
 fn endpoint() -> (Endpoint, Incoming) {
     let mut endpoint = Endpoint::builder();
 
-    let mut server_config = ServerConfigBuilder::default();
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let key = crate::PrivateKey::from_der(&cert.serialize_private_key_der()).unwrap();
     let cert = crate::Certificate::from_der(&cert.serialize_der().unwrap()).unwrap();
     let cert_chain = crate::CertificateChain::from_certs(vec![cert.clone()]);
-    server_config.certificate(cert_chain, key).unwrap();
-    endpoint.listen(server_config.build());
+    let server_config = crate::ServerConfig::with_single_cert(cert_chain, key).unwrap();
+    endpoint.listen(server_config);
 
-    let mut client_config = ClientConfigBuilder::default();
-    client_config.add_certificate_authority(cert).unwrap();
-    endpoint.default_client_config(client_config.build());
+    let client_config = ClientConfig::with_root_certificates(vec![cert], None).unwrap();
+    endpoint.default_client_config(client_config);
 
     let (x, y) = endpoint
         .bind(&SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -432,15 +431,13 @@ fn run_echo(args: EchoArgs) {
 
         // We don't use the `endpoint` helper here because we want two different endpoints with
         // different addresses.
-        let mut server_config = ServerConfigBuilder::default();
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let key = crate::PrivateKey::from_der(&cert.serialize_private_key_der()).unwrap();
         let cert = crate::Certificate::from_der(&cert.serialize_der().unwrap()).unwrap();
         let cert_chain = crate::CertificateChain::from_certs(vec![cert.clone()]);
-        server_config.certificate(cert_chain, key).unwrap();
+        let mut server_config = crate::ServerConfig::with_single_cert(cert_chain, key).unwrap();
 
         let mut server = Endpoint::builder();
-        let mut server_config = server_config.build();
         server_config.transport = transport_config.clone();
         server.listen(server_config);
         let server_sock = UdpSocket::bind(args.server_addr).unwrap();
@@ -450,10 +447,10 @@ fn run_echo(args: EchoArgs) {
             server.with_socket(server_sock).unwrap()
         };
 
-        let mut client_config = ClientConfigBuilder::default();
-        client_config.add_certificate_authority(cert).unwrap();
-        client_config.enable_keylog();
-        let mut client_config = client_config.build();
+        let client_config = ClientConfig::with_root_certificates(vec![cert], None).unwrap();
+        let mut client_config_builder = ClientConfigBuilder::new(client_config);
+        client_config_builder.enable_keylog();
+        let mut client_config = client_config_builder.build();
         client_config.transport = transport_config;
         let mut client = Endpoint::builder();
         client.default_client_config(client_config);

@@ -47,42 +47,34 @@ async fn run(opt: Opt) -> Result<()> {
         (&Some(ref key), &Some(ref cert)) => {
             let key = fs::read(key).context("reading key")?;
             let cert = fs::read(cert).expect("reading cert");
-            (
-                quinn::PrivateKey::from_pem(&key).context("parsing key")?,
-                quinn::CertificateChain::from_pem(&cert).context("parsing cert")?,
-            )
+
+            let mut certs = Vec::new();
+            for cert in rustls_pemfile::certs(&mut cert.as_ref()).context("parsing cert")? {
+                certs.push(rustls::Certificate(cert));
+            }
+
+            (rustls::PrivateKey(key), certs)
         }
         _ => {
             let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
             (
-                quinn::PrivateKey::from_der(&cert.serialize_private_key_der()).unwrap(),
-                quinn::CertificateChain::from_certs(vec![quinn::Certificate::from_der(
-                    &cert.serialize_der().unwrap(),
-                )
-                .unwrap()]),
+                rustls::PrivateKey(cert.serialize_private_key_der()),
+                vec![rustls::Certificate(cert.serialize_der().unwrap())],
             )
         }
     };
 
-    let mut server_config = quinn::ServerConfigBuilder::default();
-    server_config.certificate(cert, key).unwrap();
-    server_config.protocols(&[b"perf"]);
+    let mut crypto = rustls::ServerConfig::builder()
+        .with_cipher_suites(PERF_CIPHER_SUITES)
+        .with_safe_default_kx_groups()
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(cert, key)
+        .unwrap();
+    crypto.alpn_protocols = vec![b"perf".to_vec()];
 
-    let mut server_config = server_config.build();
-
-    // Configure cipher suites for efficiency
-    let tls_config = Arc::get_mut(&mut server_config.crypto).unwrap();
-    tls_config.ciphersuites.clear();
-    tls_config
-        .ciphersuites
-        .push(&rustls::ciphersuite::TLS13_AES_128_GCM_SHA256);
-    tls_config
-        .ciphersuites
-        .push(&rustls::ciphersuite::TLS13_AES_256_GCM_SHA384);
-    tls_config
-        .ciphersuites
-        .push(&rustls::ciphersuite::TLS13_CHACHA20_POLY1305_SHA256);
-
+    let server_config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
     let mut endpoint = quinn::EndpointBuilder::default();
     endpoint.listen(server_config);
 
@@ -217,3 +209,9 @@ async fn respond(mut bytes: u64, mut stream: quinn::SendStream) -> Result<()> {
     debug!("finished responding on {}", stream.id());
     Ok(())
 }
+
+static PERF_CIPHER_SUITES: &[rustls::SupportedCipherSuite] = &[
+    rustls::cipher_suite::TLS13_AES_128_GCM_SHA256,
+    rustls::cipher_suite::TLS13_AES_256_GCM_SHA384,
+    rustls::cipher_suite::TLS13_CHACHA20_POLY1305_SHA256,
+];

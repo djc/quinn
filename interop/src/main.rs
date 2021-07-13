@@ -257,19 +257,23 @@ impl State {
             .to_socket_addrs()?
             .next()
             .ok_or_else(|| anyhow!("couldn't resolve to an address"))?;
-        let host = if webpki::DNSNameRef::try_from_ascii_str(&peer.host).is_ok() {
+        let host = if webpki::DnsNameRef::try_from_ascii_str(&peer.host).is_ok() {
             &peer.host
         } else {
             warn!("invalid hostname, using \"example.com\"");
             "example.com"
         };
 
-        let mut tls_config = rustls::ClientConfig::new();
-        tls_config.versions = vec![rustls::ProtocolVersion::TLSv1_3];
+        let verifier = InteropVerifier(Arc::new(Mutex::new(false)));
+        let mut tls_config = rustls::ClientConfig::builder()
+            .with_safe_default_cipher_suites()
+            .with_safe_default_kx_groups()
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .unwrap()
+            .with_custom_certificate_verifier(Arc::new(verifier))
+            .with_no_client_auth();
+
         tls_config.enable_early_data = true;
-        tls_config
-            .dangerous()
-            .set_certificate_verifier(Arc::new(InteropVerifier(Arc::new(Mutex::new(false)))));
         tls_config.alpn_protocols = (&peer.alpn).into();
         if keylog {
             tls_config.key_log = Arc::new(rustls::KeyLogFile::new());
@@ -603,14 +607,17 @@ async fn hq_get(stream: (quinn::SendStream, quinn::RecvStream), path: &str) -> R
 }
 
 struct InteropVerifier(Arc<Mutex<bool>>);
+
 impl rustls::ServerCertVerifier for InteropVerifier {
     fn verify_server_cert(
         &self,
-        _roots: &rustls::RootCertStore,
-        _presented_certs: &[rustls::Certificate],
-        _dns_name: webpki::DNSNameRef,
+        _end_entity: &rustls::Certificate,
+        _intermediates: &[rustls::Certificate],
+        _server_name: &rustls::ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
         _ocsp_response: &[u8],
-    ) -> std::result::Result<rustls::ServerCertVerified, rustls::TLSError> {
+        _now: std::time::SystemTime,
+    ) -> Result<rustls::ServerCertVerified, rustls::Error> {
         *self.0.lock().unwrap() = true;
         Ok(rustls::ServerCertVerified::assertion())
     }

@@ -63,22 +63,7 @@ fn main() {
 #[tokio::main]
 #[allow(clippy::field_reassign_with_default)] // https://github.com/rust-lang/rust-clippy/issues/6527
 async fn run(options: Opt) -> Result<()> {
-    let mut transport_config = quinn::TransportConfig::default();
-    transport_config.max_concurrent_uni_streams(0).unwrap();
-    let mut server_config = quinn::ServerConfig::default();
-    server_config.transport = Arc::new(transport_config);
-    let mut server_config = quinn::ServerConfigBuilder::new(server_config);
-    server_config.protocols(common::ALPN_QUIC_HTTP);
-
-    if options.keylog {
-        server_config.enable_keylog();
-    }
-
-    if options.stateless_retry {
-        server_config.use_stateless_retry(true);
-    }
-
-    if let (Some(key_path), Some(cert_path)) = (&options.key, &options.cert) {
+    let (certs, key) = if let (Some(key_path), Some(cert_path)) = (&options.key, &options.cert) {
         let key = fs::read(key_path).context("failed to read private key")?;
         let key = if key_path.extension().map_or(false, |x| x == "der") {
             quinn::PrivateKey::from_der(&key)?
@@ -87,13 +72,12 @@ async fn run(options: Opt) -> Result<()> {
         };
         let cert_chain = fs::read(cert_path).context("failed to read certificate chain")?;
         let cert_chain = if cert_path.extension().map_or(false, |x| x == "der") {
-            quinn::CertificateChain::from_certs(Some(
-                quinn::Certificate::from_der(&cert_chain).unwrap(),
-            ))
+            quinn::CertificateChain::from_certs(Some(quinn::Certificate::from_der(&cert_chain)?))
         } else {
             quinn::CertificateChain::from_pem(&cert_chain)?
         };
-        server_config.certificate(cert_chain, key)?;
+
+        (cert_chain, key)
     } else {
         let dirs = directories_next::ProjectDirs::from("org", "quinn", "quinn-examples").unwrap();
         let path = dirs.data_local_dir();
@@ -115,13 +99,31 @@ async fn run(options: Opt) -> Result<()> {
                 bail!("failed to read certificate: {}", e);
             }
         };
+
         let key = quinn::PrivateKey::from_der(&key)?;
         let cert = quinn::Certificate::from_der(&cert)?;
-        server_config.certificate(quinn::CertificateChain::from_certs(vec![cert]), key)?;
+        (quinn::CertificateChain::from_certs(vec![cert]), key)
+    };
+
+    let mut server_config = quinn::ServerConfig::with_single_cert(certs, key)?;
+    Arc::get_mut(&mut server_config.transport)
+        .unwrap()
+        .max_concurrent_uni_streams(0)
+        .unwrap();
+
+    let mut server_config_builder = quinn::ServerConfigBuilder::new(server_config);
+    server_config_builder.protocols(common::ALPN_QUIC_HTTP);
+
+    if options.keylog {
+        server_config_builder.enable_keylog();
+    }
+
+    if options.stateless_retry {
+        server_config_builder.use_stateless_retry(true);
     }
 
     let mut endpoint = quinn::Endpoint::builder();
-    endpoint.listen(server_config.build());
+    endpoint.listen(server_config_builder.build());
 
     let root = Arc::<Path>::from(options.root.clone());
     if !root.exists() {

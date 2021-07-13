@@ -140,11 +140,6 @@ pub trait ClientConfig<S>: Clone
 where
     S: Session,
 {
-    /// Construct the default configuration
-    fn new() -> Self
-    where
-        Self: Sized;
-
     /// Start a client session with this configuration
     fn start_session(
         &self,
@@ -158,11 +153,6 @@ pub trait ServerConfig<S>: Clone + Send + Sync
 where
     S: Session,
 {
-    /// Construct the default configuration
-    fn new() -> Self
-    where
-        Self: Sized;
-
     /// Start a server session with this configuration
     fn start_session(&self, params: &TransportParameters) -> S;
 }

@@ -12,9 +12,10 @@ futures = "0.3.8"
 hdrhistogram = { version = "7.2", default-features = false }
 quinn = { path = "../quinn" }
 rcgen = "0.8"
-rustls = { version = "0.19", features = ["dangerous_configuration"] }
+rustls = { version = "0.20.0-beta1", git = "https://github.com/djc/rustls", rev = "d0a6142e74c84a38a91e166304918daea2902478", features = ["dangerous_configuration", "quic"] }
+rustls-pemfile = { version = "0.2.1" }
 socket2 = "0.4"
-webpki = "0.21"
+webpki = "0.22"
 structopt = "0.3"
 tokio = { version = "1.0.1", features = ["rt", "macros", "signal", "net", "sync"] }
 tracing = "0.1.10"

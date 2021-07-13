@@ -130,7 +130,7 @@ impl Pair {
 
     pub fn connect(&mut self) -> (ConnectionHandle, ConnectionHandle) {
         info!("connecting");
-        let client_ch = self.begin_connect(client_config());
+        let client_ch = self.begin_connect(client_config(None));
         self.drive();
         let server_ch = self.server.assert_accept();
         assert_matches!(
@@ -207,7 +207,7 @@ impl Pair {
 
 impl Default for Pair {
     fn default() -> Self {
-        Pair::new(Default::default(), server_config())
+        Pair::new(Default::default(), server_config(None))
     }
 }
 
@@ -375,38 +375,29 @@ impl Write for TestWriter {
     }
 }
 
-pub fn server_config() -> ServerConfig {
-    let key = CERTIFICATE.serialize_private_key_der();
-    let cert = CERTIFICATE.serialize_pem().unwrap();
+pub fn server_config(cert_and_key: Option<(Certificate, PrivateKey)>) -> ServerConfig {
+    let (cert, key) = match cert_and_key {
+        Some((cert, key)) => (cert, key),
+        None => (
+            Certificate::from_der(&CERTIFICATE.serialize_der().unwrap()).unwrap(),
+            PrivateKey::from_der(&CERTIFICATE.serialize_private_key_der()).unwrap(),
+        ),
+    };
 
-    let mut crypto = crypto::ServerConfig::new();
-    Arc::make_mut(&mut crypto)
-        .set_single_cert(
-            rustls::internal::pemfile::certs(&mut cert.as_bytes()).unwrap(),
-            rustls::PrivateKey(key.to_vec()),
-        )
-        .unwrap();
-    ServerConfig {
-        crypto,
-        ..Default::default()
-    }
+    let cert_chain = CertificateChain::from_certs(vec![cert]);
+    ServerConfig::with_single_cert(cert_chain, key).unwrap()
 }
 
-pub fn client_config() -> ClientConfig {
-    let cert = CERTIFICATE.serialize_der().unwrap();
-    let anchor = webpki::trust_anchor_util::cert_der_as_trust_anchor(&cert).unwrap();
-    let anchor_vec = vec![anchor];
+pub fn client_config(certs: Option<Vec<Certificate>>) -> ClientConfig {
+    let certs = match certs {
+        Some(certs) => certs,
+        None => vec![Certificate::from_der(&CERTIFICATE.serialize_der().unwrap()).unwrap()],
+    };
 
-    let mut crypto = crypto::ClientConfig::new();
-    Arc::make_mut(&mut crypto)
-        .root_store
-        .add_server_trust_anchors(&webpki::TLSServerTrustAnchors(&anchor_vec));
-    Arc::make_mut(&mut crypto).key_log = Arc::new(KeyLogFile::new());
-    Arc::make_mut(&mut crypto).enable_early_data = true;
-    ClientConfig {
-        transport: Default::default(),
-        crypto,
-    }
+    let mut config = ClientConfig::with_root_certificates(certs, None).unwrap();
+    Arc::make_mut(&mut config.crypto).key_log = Arc::new(KeyLogFile::new());
+    Arc::make_mut(&mut config.crypto).enable_early_data = true;
+    config
 }
 
 pub fn min_opt<T: Ord>(x: Option<T>, y: Option<T>) -> Option<T> {
@@ -450,6 +441,6 @@ fn split_transmit(transmit: Transmit) -> Vec<Transmit> {
 lazy_static! {
     pub static ref SERVER_PORTS: Mutex<RangeFrom<u16>> = Mutex::new(4433..);
     pub static ref CLIENT_PORTS: Mutex<RangeFrom<u16>> = Mutex::new(44433..);
-    static ref CERTIFICATE: rcgen::Certificate =
+    pub(crate) static ref CERTIFICATE: rcgen::Certificate =
         rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
 }

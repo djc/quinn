@@ -3,52 +3,7 @@ use ring::{aead, hkdf, hmac};
 use crate::{
     config::ConfigError,
     crypto::{self, CryptoError},
-    packet::{PacketNumber, LONG_HEADER_FORM},
 };
-
-impl crypto::HeaderKey for aead::quic::HeaderProtectionKey {
-    fn decrypt(&self, pn_offset: usize, packet: &mut [u8]) {
-        let (header, sample) = packet.split_at_mut(pn_offset + 4);
-        let mask = self.new_mask(&sample[0..self.sample_size()]).unwrap();
-        if header[0] & LONG_HEADER_FORM == LONG_HEADER_FORM {
-            // Long header: 4 bits masked
-            header[0] ^= mask[0] & 0x0f;
-        } else {
-            // Short header: 5 bits masked
-            header[0] ^= mask[0] & 0x1f;
-        }
-        let pn_length = PacketNumber::decode_len(header[0]);
-        for (out, inp) in header[pn_offset..pn_offset + pn_length]
-            .iter_mut()
-            .zip(&mask[1..])
-        {
-            *out ^= inp;
-        }
-    }
-
-    fn encrypt(&self, pn_offset: usize, packet: &mut [u8]) {
-        let (header, sample) = packet.split_at_mut(pn_offset + 4);
-        let mask = self.new_mask(&sample[0..self.sample_size()]).unwrap();
-        let pn_length = PacketNumber::decode_len(header[0]);
-        if header[0] & LONG_HEADER_FORM == LONG_HEADER_FORM {
-            // Long header: 4 bits masked
-            header[0] ^= mask[0] & 0x0f;
-        } else {
-            // Short header: 5 bits masked
-            header[0] ^= mask[0] & 0x1f;
-        }
-        for (out, inp) in header[pn_offset..pn_offset + pn_length]
-            .iter_mut()
-            .zip(&mask[1..])
-        {
-            *out ^= inp;
-        }
-    }
-
-    fn sample_size(&self) -> usize {
-        self.algorithm().sample_len()
-    }
-}
 
 impl crypto::HmacKey for hmac::Key {
     const KEY_LEN: usize = 64;

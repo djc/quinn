@@ -859,6 +859,11 @@ pub enum ConnectError {
     /// Examples include attempting to connect to port 0, or using an inappropriate address family.
     #[error("invalid remote address: {0}")]
     InvalidRemoteAddress(SocketAddr),
+    /// No default client configuration was set up
+    ///
+    /// Use [`Endpoint::connect_with`] to specify a client configuration.
+    #[error("no default client config")]
+    NoDefaultClientConfig,
 }
 
 /// Reset Tokens which are associated with peer socket addresses

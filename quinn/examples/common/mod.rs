@@ -2,8 +2,7 @@
 //! Commonly used code in most examples.
 
 use quinn::{
-    Certificate, CertificateChain, ClientConfig, ClientConfigBuilder, Endpoint, Incoming,
-    PrivateKey, ServerConfig, ServerConfigBuilder, TransportConfig,
+    Certificate, CertificateChain, ClientConfig, Endpoint, Incoming, PrivateKey, ServerConfig,
 };
 use std::{error::Error, net::SocketAddr, sync::Arc};
 
@@ -46,11 +45,11 @@ pub fn make_server_endpoint(bind_addr: SocketAddr) -> Result<(Incoming, Vec<u8>)
 ///
 /// - server_certs: a list of trusted certificates in DER format.
 fn configure_client(server_certs: &[&[u8]]) -> Result<ClientConfig, Box<dyn Error>> {
-    let mut cfg_builder = ClientConfigBuilder::default();
-    for cert in server_certs {
-        cfg_builder.add_certificate_authority(Certificate::from_der(&cert)?)?;
-    }
-    Ok(cfg_builder.build())
+    let certs = server_certs
+        .iter()
+        .map(|&der| Certificate::from_der(der))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ClientConfig::with_root_certificates(certs, None)?)
 }
 
 /// Returns default server configuration along with its certificate.
@@ -60,16 +59,15 @@ fn configure_server() -> Result<(ServerConfig, Vec<u8>), Box<dyn Error>> {
     let cert_der = cert.serialize_der().unwrap();
     let priv_key = cert.serialize_private_key_der();
     let priv_key = PrivateKey::from_der(&priv_key)?;
+    let cert_chain = CertificateChain::from_certs(vec![Certificate::from_der(&cert_der)?]);
 
-    let mut transport_config = TransportConfig::default();
-    transport_config.max_concurrent_uni_streams(0).unwrap();
-    let mut server_config = ServerConfig::default();
-    server_config.transport = Arc::new(transport_config);
-    let mut cfg_builder = ServerConfigBuilder::new(server_config);
-    let cert = Certificate::from_der(&cert_der)?;
-    cfg_builder.certificate(CertificateChain::from_certs(vec![cert]), priv_key)?;
+    let mut server_config = ServerConfig::with_single_cert(cert_chain, priv_key)?;
+    Arc::get_mut(&mut server_config.transport)
+        .unwrap()
+        .max_concurrent_uni_streams(0)
+        .unwrap();
 
-    Ok((cfg_builder.build(), cert_der))
+    Ok((server_config, cert_der))
 }
 
 #[allow(unused)]
