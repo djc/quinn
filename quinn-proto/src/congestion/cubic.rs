@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::{Controller, ControllerFactory};
+use crate::connection::paths::RttEstimator;
 use std::cmp;
 
 /// CUBIC Constants.
@@ -94,7 +95,7 @@ impl Controller for Cubic {
         sent: Instant,
         bytes: u64,
         app_limited: bool,
-        rtt: Duration,
+        rtt: &RttEstimator,
     ) {
         if app_limited
             || self
@@ -130,12 +131,12 @@ impl Controller for Cubic {
             // w_cubic(t + rtt)
             let w_cubic = self
                 .cubic_state
-                .w_cubic(t + rtt, self.config.max_datagram_size);
+                .w_cubic(t + rtt.get(), self.config.max_datagram_size);
 
             // w_est(t)
             let w_est = self
                 .cubic_state
-                .w_est(t, rtt, self.config.max_datagram_size);
+                .w_est(t, rtt.get(), self.config.max_datagram_size);
 
             let mut cubic_cwnd = self.window;
 
@@ -168,6 +169,7 @@ impl Controller for Cubic {
         now: Instant,
         sent: Instant,
         _is_persistent_congestion: bool,
+        _lost_bytes: u64,
     ) {
         if self
             .recovery_start_time

@@ -1,7 +1,8 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use super::{Controller, ControllerFactory};
+use crate::connection::paths::RttEstimator;
 
 /// A simple, standard congestion controller
 #[derive(Debug, Clone)]
@@ -39,7 +40,7 @@ impl Controller for NewReno {
         sent: Instant,
         bytes: u64,
         app_limited: bool,
-        _rtt: Duration,
+        _rtt: &RttEstimator,
     ) {
         if app_limited || sent <= self.recovery_start_time {
             return;
@@ -74,7 +75,13 @@ impl Controller for NewReno {
         }
     }
 
-    fn on_congestion_event(&mut self, now: Instant, sent: Instant, is_persistent_congestion: bool) {
+    fn on_congestion_event(
+        &mut self,
+        now: Instant,
+        sent: Instant,
+        is_persistent_congestion: bool,
+        _lost_bytes: u64,
+    ) {
         if sent <= self.recovery_start_time {
             return;
         }

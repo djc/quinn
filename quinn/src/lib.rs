@@ -83,6 +83,9 @@ pub mod generic {
     pub use crate::endpoint::{Endpoint, Incoming};
     pub use crate::recv_stream::{Read, ReadChunk, ReadChunks, ReadExact, ReadToEnd, RecvStream};
     pub use crate::send_stream::SendStream;
+    pub use proto::congestion::{
+        BBRConfig, Controller, ControllerFactory, CubicConfig, NewRenoConfig,
+    };
     pub use proto::generic::{ClientConfig, ServerConfig};
 }
 
