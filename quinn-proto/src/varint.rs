@@ -150,7 +150,11 @@ impl Codec for VarInt {
             return Err(UnexpectedEnd);
         }
         let mut buf = [0; 8];
-        buf[0] = r.get_u8();
+        // This does not make use of `r.get_u8()` to avoid the additional bounds
+        // check. We already performed this one earlier on.
+        buf[0] = r.chunk()[0];
+        r.advance(1);
+
         let tag = buf[0] >> 6;
         buf[0] &= 0b0011_1111;
         let x = match tag {
@@ -159,21 +163,35 @@ impl Codec for VarInt {
                 if r.remaining() < 1 {
                     return Err(UnexpectedEnd);
                 }
-                r.copy_to_slice(&mut buf[1..2]);
-                u64::from(u16::from_be_bytes(buf[..2].try_into().unwrap()))
+
+                // A little-endian buffer is used here since that's our most
+                // likely target platform and it performs slightly better than
+                // the be conversion. For bigger numbers we don't bother, because
+                // it makes the byte copy more complicated.
+                let mut b = [0, buf[0]];
+                b[0] = r.chunk()[0];
+                r.advance(1);
+
+                u64::from(u16::from_le_bytes(b))
             }
             0b10 => {
                 if r.remaining() < 3 {
                     return Err(UnexpectedEnd);
                 }
-                r.copy_to_slice(&mut buf[1..4]);
+
+                // We performed the bounds check upfront
+                unsafe { copy_unchecked(r, &mut buf[1..4]) };
+
                 u64::from(u32::from_be_bytes(buf[..4].try_into().unwrap()))
             }
             0b11 => {
                 if r.remaining() < 7 {
                     return Err(UnexpectedEnd);
                 }
-                r.copy_to_slice(&mut buf[1..8]);
+
+                // We performed the bounds check upfront
+                unsafe { copy_unchecked(r, &mut buf[1..8]) };
+
                 u64::from_be_bytes(buf)
             }
             _ => unreachable!(),
@@ -194,5 +212,20 @@ impl Codec for VarInt {
         } else {
             unreachable!("malformed VarInt")
         }
+    }
+}
+
+unsafe fn copy_unchecked<B: Buf>(src: &mut B, dst: &mut [u8]) {
+    let mut off = 0;
+    let len = dst.len();
+
+    while off < dst.len() {
+        let chunk = src.chunk();
+        let to_copy = chunk.len().min(len - off);
+
+        std::ptr::copy_nonoverlapping(chunk.as_ptr(), dst[off..].as_mut_ptr(), to_copy);
+
+        off += to_copy;
+        src.advance(to_copy);
     }
 }
