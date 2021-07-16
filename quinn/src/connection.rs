@@ -997,6 +997,9 @@ where
     /// Used to wake up all blocked futures when the connection becomes closed for any reason
     fn terminate(&mut self, reason: ConnectionError) {
         self.error = Some(reason.clone());
+        if let Some(x) = self.on_handshake_data.take() {
+            let _ = x.send(());
+        }
         for (_, writer) in self.blocked_writers.drain() {
             writer.wake()
         }
