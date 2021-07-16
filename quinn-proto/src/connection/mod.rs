@@ -76,6 +76,12 @@ pub use streams::{
 mod timer;
 use timer::{Timer, TimerTable};
 
+#[derive(Debug)]
+enum PathType {
+    Previous,
+    Current,
+}
+
 /// Protocol state and logic for a single QUIC connection
 ///
 /// Objects of this type receive [`ConnectionEvent`]s and emit [`EndpointEvent`]s and application
@@ -415,54 +421,11 @@ where
         let mut num_datagrams = 0;
 
         // Send PATH_CHALLENGE for a previous path if necessary
-        if let Some(ref mut prev_path) = self.prev_path {
-            if prev_path.challenge_pending {
-                prev_path.challenge_pending = false;
-                let token = prev_path
-                    .challenge
-                    .expect("previous path challenge pending without token");
-                let destination = prev_path.remote;
-                debug_assert_eq!(
-                    self.highest_space,
-                    SpaceId::Data,
-                    "PATH_CHALLENGE queued without 1-RTT keys"
-                );
-                let mut buf = Vec::with_capacity(self.path.max_udp_payload_size as usize);
-                let buf_capacity = self.path.max_udp_payload_size as usize;
-
-                let mut builder = PacketBuilder::new(
-                    now,
-                    SpaceId::Data,
-                    &mut buf,
-                    buf_capacity,
-                    0,
-                    false,
-                    self,
-                    self.version,
-                )?;
-                trace!("validating previous path with PATH_CHALLENGE {:08x}", token);
-                buf.write(frame::Type::PATH_CHALLENGE);
-                buf.write(token);
-                self.stats.frame_tx.path_challenge += 1;
-
-                // An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame
-                // to at least the smallest allowed maximum datagram size of 1200 bytes,
-                // unless the anti-amplification limit for the path does not permit
-                // sending a datagram of this size
-                builder.pad_to(MIN_INITIAL_SIZE);
-
-                builder.finish(self, &mut buf);
-                self.stats.udp_tx.datagrams += 1;
-                self.stats.udp_tx.transmits += 1;
-                self.stats.udp_tx.bytes += buf.len() as u64;
-                return Some(Transmit {
-                    destination,
-                    contents: buf,
-                    ecn: None,
-                    segment_size: None,
-                    src_ip: self.local_ip,
-                });
-            }
+        if let Some(transmit) = self.path_challenge(now, PathType::Previous) {
+            return Some(transmit);
+        }
+        if let Some(transmit) = self.path_challenge(now, PathType::Current) {
+            return Some(transmit);
         }
 
         // If we need to send a probe, make sure we have something to send.
@@ -1507,6 +1470,74 @@ where
         if let Some(t) = self.local_cid_state.next_timeout() {
             self.timers.set(Timer::PushNewCid, t);
         }
+    }
+
+    fn path_challenge(&mut self, now: Instant, path_type: PathType) -> Option<Transmit> {
+        let mut path = match path_type {
+            PathType::Previous => {
+                if let Some(ref mut path) = self.prev_path {
+                    Some(path)
+                } else {
+                    None
+                }
+            }
+            PathType::Current => Some(&mut self.path),
+        };
+        if let Some(ref mut path) = path {
+            if path.challenge_pending {
+                path.challenge_pending = false;
+                let token = path.challenge.unwrap_or_else(|| {
+                    panic!("{:?} path challenge pending without token", path_type)
+                });
+                let destination = path.remote;
+                debug_assert_eq!(
+                    self.highest_space,
+                    SpaceId::Data,
+                    "PATH_CHALLENGE queued without 1-RTT keys"
+                );
+                let mut buf = Vec::with_capacity(self.path.max_udp_payload_size as usize);
+                let buf_capacity = self.path.max_udp_payload_size as usize;
+
+                let mut builder = PacketBuilder::new(
+                    now,
+                    SpaceId::Data,
+                    &mut buf,
+                    buf_capacity,
+                    0,
+                    false,
+                    self,
+                    self.version,
+                )?;
+                trace!(
+                    "validating {:?} to {} with PATH_CHALLENGE {:08x}",
+                    path_type,
+                    destination,
+                    token
+                );
+                buf.write(frame::Type::PATH_CHALLENGE);
+                buf.write(token);
+                self.stats.frame_tx.path_challenge += 1;
+
+                // An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame
+                // to at least the smallest allowed maximum datagram size of 1200 bytes,
+                // unless the anti-amplification limit for the path does not permit
+                // sending a datagram of this size
+                builder.pad_to(MIN_INITIAL_SIZE);
+
+                builder.finish(self, &mut buf);
+                self.stats.udp_tx.datagrams += 1;
+                self.stats.udp_tx.transmits += 1;
+                self.stats.udp_tx.bytes += buf.len() as u64;
+                return Some(Transmit {
+                    destination,
+                    contents: buf,
+                    ecn: None,
+                    segment_size: None,
+                    src_ip: self.local_ip,
+                });
+            }
+        }
+        None
     }
 
     /// Handle the already-decrypted first packet from the client
