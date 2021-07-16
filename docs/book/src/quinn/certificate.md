@@ -77,7 +77,7 @@ pub fn generate_self_signed_cert(cert_path: &str, key_path: &str) -> anyhow::Res
     fs::write(&cert_path, &serialized_certificate).context("failed to write certificate")?;
     fs::write(&key_path, &serialized_key).context("failed to write private key")?;
 
-    let cert = quinn::Certificate::from_der(&cert)?;
+    let cert = quinn::Certificate::from_der(&serialized_certificate)?;
     let key = quinn::PrivateKey::from_der(&serialized_key)?;
     Ok((cert, key))
 }
